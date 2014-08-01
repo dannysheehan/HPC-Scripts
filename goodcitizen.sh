@@ -5,7 +5,7 @@
 #description    :Script to email users using 100% cpu for more than 1 hour
 #author         :Danny W Sheehan
 #date           :July 2014
-#website        :ftmon.org
+#website        :www.setuptips.com
 #
 # This script is meant to run as a cron job on head nodes every 2 hours.
 # It sends an email to users using > 80% cpu for more than 1 hour.

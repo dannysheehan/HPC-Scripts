@@ -1,18 +1,20 @@
-_chunkybackup.sh <directory> <backup-file> <chunksize>_
+chunkybackup.sh
+===============
 
-This script backups up the specified _<directory>_ across N number of tar 
-files of size _<chunksize>_. The tar files are named _<backup-file>.x.tgz_ 
-where x is from 1..N, and are created in the users _<HSM>/<username>_ directory.
+**chunkybackup.sh directory backup-file chunksize**
 
-- __<directory>__   = directory to backup
-- __<backup-file>__ = name to use on backup files e.g. <backup-file>.1.tgz
-- __<chunk-size>__  = the maximim chunk size for each tar file in GB
+This script backups up the specified _directory_ across N number of tar 
+files of size _chunksize_. The tar files are named _backup-file.x.tgz_ 
+where x is from 1..N, and are created in the users _HSM/username_ directory.
+
+- **directory**   = directory to backup
+- **backup-file** = name to use on backup files e.g. <backup-file>.1.tgz
+- **chunk-size**  = the maximim chunk size for each tar file in GB
 
 **NOTE:** Must be run as the user whose data is being backed up, not as root.
 
 ~~~
-su - <user>
-chunkybackup.sh /home/<user> home_backup 20
+$ chunkybackup.sh /home/user home_backup 20
 ~~~
 
 This script is also intended to overcome the quota limits on /HSM storage
@@ -34,7 +36,7 @@ what files have already been backed up.
 - **$HOST** -- node that this script is running on.
 - **$TMPDIR** -- if run from batch job
 
-_<backup-file>.x.tgz.txt_ files are also created under _<HSM>/<username>_ so 
+_backup-file.x.tgz.txt_ files are also created under _HSM/username_ so 
 users can quickly determine which tar file a paticular file or directory is 
 located in.
 
@@ -45,7 +47,7 @@ This overcomes the HSM quota limit.
 
 To avoid corrupt backups, checks are made of the available space in 
 _$SCRATCH_DIR_ before tar files are created,  checks of the users quota in 
-_/HSM/<username>_ before the tar files are copied in, and the copied chunks 
+_/HSM/username_ before the tar files are copied in, and the copied chunks 
 are verified before chunks are written to tape.
 
 

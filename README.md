@@ -1,7 +1,7 @@
 HPC-Scripts
 ===========
 
-Scripts to help Unix Administrators manage High Performance Computing (HPC) environments.
+Scripts to help Unix Administrators and Users manage High Performance Computing (HPC) environments.
 
 
 ## HPC Head Node Scripts
@@ -33,7 +33,7 @@ a quota based NFS **online** frontend disk cache to a much larger backend
 the data in the background. 
 
 
-## HSM Chunk Small Files Into Large Files (_chunkybackup.sh_)
+### HSM Chunk Small Files Into Large Files (_chunkybackup.sh_)
 
 As can be expected copying lots of small files to HSM storage is not 
 particularly efficient. Small files are typically not big enough to be

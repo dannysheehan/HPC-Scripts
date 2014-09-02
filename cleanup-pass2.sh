@@ -26,7 +26,7 @@ FS_NAME="/scratch365"
 FS_NAME="/home/$USER"
 
 # The minimum last access time for which users files will be deleted.
-LAST_ACCESS=365
+LAST_ACCESS=30
 
 # How much warning we are going to give users that their files will be deleted.
 NOTIFY_DAYS_DEFAULT=14

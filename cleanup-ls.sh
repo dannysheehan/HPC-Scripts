@@ -1,20 +1,26 @@
 #!/bin/bash
-# -----------------------------------------------------------
-# Lists files that will be removed or that are excpeted for
-# removal from /work2 for all users or a specific
-# user.
+#---------------------------------------------------------------------------
+# @(#)$Id$
+#title          :cleanup-ls.sh
+#description    :Lists files that will be removed or that are excpeted for removal from specified filesystem for all users or a specific user.
+#usage          :cleanup-ls.sh -[ed] <user sub directory> 
+#author         :Danny W Sheehan
+#date           :July 2014
+#website        :www.setuptips.com
 #
-# USAGE
-#   cleanup-ls.sh -e <directory relative to /work2>
-#     - list the files that are excepted for deletion under specified directory.
-#
-#   cleanup-ls.sh -d <directory relative to /work2>
-#     - list the files that will be removed for all users.
-#
-#
-# -----------------------------------------------------------
-FILES_TO_DELETE="/work2/CLEANUP/delete-filelist.txt"
-DELETE_EXCEPTIONS="/work2/CLEANUP/delete-exceptions.txt"
+#---------------------------------------------------------------------------
+# The filesystem we are performing housekeeping (cleanup) on.
+FS_NAME="/scratch365"
+
+# Just for testing
+FS_NAME="/home/$USER"
+
+# The directory in which the files to delete list and exceptions are kept.
+CLEANUP_HOME="${FS_NAME}/CLEANUP"
+
+
+FILES_TO_DELETE="${CLEANUP_HOME}/delete-filelist.txt"
+DELETE_EXCEPTIONS="${CLEANUP_HOME}/delete-exceptions.txt"
 
 TEMP_EXCEPT="/tmp/djsksksej$$"
 
@@ -28,7 +34,7 @@ sed -e "/^[ \t]*$/d" -e "/^#/d" $DELETE_EXCEPTIONS > $TEMP_EXCEPT
 usage()
 { 
   echo "
-Usage: $0 [-e] [-d] [bscratch sub-directory]
+Usage: $0 [-e] [-d] [filesystem sub-directory]
 
 Lists the files that will be deleted/excepted for all bscratch directories 
 or for the specified [bscratch sub-directory]
@@ -37,12 +43,12 @@ or for the specified [bscratch sub-directory]
 
   -d  list the files that are not excepted and will be deleted.
 
-[bscratch sub-directory] is relative to /work2
+[bscratch sub-directory] is relative to filesystem
 
 Example:
-   $0 -d jarrah
-   $0 -e jarrah/userx
-   $0 -e userx
+   $0 -d "/usery/"
+   $0 -e "/projecty/userx/"
+   $0 -e "/userx/"
 
 " 1>&2
   rm -f $TEMP_EXCEPT

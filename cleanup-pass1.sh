@@ -16,7 +16,7 @@ FS_NAME="/scratch365"
 FS_NAME="/home/$USER"
 
 # The age of the files to cleanup.
-LAST_ACCESS=365
+LAST_ACCESS=30
 
 # The directory in which the files to delete list and exceptions are kept.
 CLEANUP_HOME="${FS_NAME}/CLEANUP"

@@ -13,7 +13,7 @@ FS_NAME="/scratch365"
 # Just for testing
 FS_NAME="/home/$USER"
 
-LAST_ACCESS=365
+LAST_ACCESS=30
 
 # The directory in which the files to delete list and exceptions are kept.
 CLEANUP_HOME="${FS_NAME}/CLEANUP"

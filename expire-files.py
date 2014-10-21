@@ -14,7 +14,7 @@ import pwd
 
 from email.mime.text import MIMEText
 
-LAST_ACCESS_TIME     = 5
+LAST_ACCESS_TIME     = 3
 
 CONFIG_DIR_NAME      = '.expirefiles'
 CACHE_DIR_NAME       = 'USER_FILE_CACHE'
@@ -112,6 +112,8 @@ def create_user_files(args):
             file_handle.close()
 
 def readlines(filename, bufsize=1024, line_terminator='\0'):
+    """ Read null terminated files from filename
+    """
     buf = ''
     with open(filename, 'r') as f:
         data = f.read(bufsize)
@@ -122,11 +124,22 @@ def readlines(filename, bufsize=1024, line_terminator='\0'):
             for line in lines: yield line
             data = f.read(bufsize)
 
-def files_to_delete(file_list_path):
+def files_to_delete(file_list_path, user_exceptions, path_exceptions):
     """ Return a list of the files to delete minus exceptions
     """
-    #for file in readlines(file_list_path):
-    pass
+    files_to_delete = []
+
+    print "files_to_delete(", file_list_path
+
+    # check for user exception
+    useruid =  os.path.basename(file_list_path)
+    if useruid in user_exceptions:
+        return files_to_delete 
+
+    for filename in readlines(file_list_path):
+         for path_except in path_exceptions:
+             if not re.match(path_except, filename):
+                 print filename
 
 def files_to_except(files):
     """ Return a list of the files that are excepted from deletion
@@ -158,6 +171,10 @@ def notify_users(args):
                     if user_uid < MAX_SYSTEM_UID:
                         system_users.append((username, lines))
                     else:
+                        files_to_delete(
+                            user_file_path,
+                            user_exceptions,
+                            path_exceptions)
                         real_users.append((username, lines))
 
                 except KeyError:
@@ -247,8 +264,14 @@ def initialize_files(dir_name):
            line = line.strip()
            # remove comments
            if line != '' and not line.startswith('#'):
-                user_exceptions.append(line)
-
+                try:
+                    userid = pwd.getpwnam(line).pw_uid
+                    user_exceptions.append(userid)
+                except KeyError:
+                    sys.stderr.write(
+                      'ERROR: invalid username in user exceptions file ' + \
+                      line + '\n' )
+                    sys.exit(2)
 
     # load "path exceptions" or create empty file if none exists
     path_exceptions_path = os.path.join(config_path, PATH_EXCEPTIONS_FILE)

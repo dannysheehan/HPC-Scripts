@@ -30,7 +30,7 @@ MAX_SYSTEM_UID       = 499
 FIND_DEPTH           = 2 
 
 path_exceptions = []
-user_excptions = []
+user_exceptions = []
 
 
 def find_files(args):
@@ -112,7 +112,7 @@ def create_user_files(args):
             file_handle.close()
 
 def readlines(filename, bufsize=1024, line_terminator='\0'):
-    """ Read null terminated files from filename
+    """ Read null terminated files from filename.
     """
     buf = ''
     with open(filename, 'r') as f:
@@ -124,27 +124,55 @@ def readlines(filename, bufsize=1024, line_terminator='\0'):
             for line in lines: yield line
             data = f.read(bufsize)
 
-def files_to_delete(file_list_path, user_exceptions, path_exceptions):
-    """ Return a list of the files to delete minus exceptions
+def count_files_to_delete(file_list_path, user_exceptions, path_exceptions):
+    """ Return a count of the number of files to delete based on exceptions.
     """
-    files_to_delete = []
+    files_to_delete = 0
 
     print "files_to_delete(", file_list_path
 
     # check for user exception
     useruid =  os.path.basename(file_list_path)
     if useruid in user_exceptions:
-        return files_to_delete 
+        return 0
 
+    # if there are no exceptions then all files should be deleted.
+    if not len(path_exceptions):
+        return len(list(readlines(file_list_path)))
+
+    # determine if the filepath is excepted.
     for filename in readlines(file_list_path):
-         for path_except in path_exceptions:
-             if not re.match(path_except, filename):
-                 print filename
+        print "filename =", filename, 
+        for path_except in path_exceptions:
+            if filename.find(path_except) == -1:
+                files_to_delete += 1
 
-def files_to_except(files):
-    """ Return a list of the files that are excepted from deletion
+    return files_to_delete
+
+
+def count_files_to_except(file_list_path, user_exceptions, path_exceptions):
+    """ Return a count of the number of files excepted from deletion.
     """
-    pass
+    files_to_except = 0
+
+    print "files_to_except(", file_list_path
+
+    # check for user exception
+    useruid =  os.path.basename(file_list_path)
+    if useruid in user_exceptions:
+        return len(list(readlines(file_list_path)))
+
+    # Check if there are exceptions.
+    if not len(path_exceptions):
+        return 0
+
+    # determine if the filepath is excepted.
+    for filename in readlines(file_list_path):
+        for path_except in path_exceptions:
+            if filename.find(path_except) != -1:
+                files_to_except += 1
+
+    return files_to_except
 
 
 def notify_users(args):
@@ -163,28 +191,41 @@ def notify_users(args):
         for file in os.listdir(user_cache_path):
             if file.isdigit():
                 user_file_path = os.path.join(user_cache_path, file)
-                lines = len(list(readlines(user_file_path)))
+                total_count  = len(list(readlines(user_file_path)))
                 user_uid = int(file)
+
+                delete_count = count_files_to_delete(
+                            user_file_path,
+                            user_exceptions,
+                            path_exceptions)
+
+                except_count = count_files_to_except(
+                            user_file_path,
+                            user_exceptions,
+                            path_exceptions)
+
+                print total_count, delete_count, except_count
+                assert total_count == delete_count + except_count
 
                 try:
                     username = pwd.getpwuid(user_uid).pw_name
                     if user_uid < MAX_SYSTEM_UID:
-                        system_users.append((username, lines))
+                        system_users.append(
+                            (username, delete_count, except_count))
                     else:
-                        files_to_delete(
-                            user_file_path,
-                            user_exceptions,
-                            path_exceptions)
-                        real_users.append((username, lines))
+                        real_users.append(
+                            (username, delete_count, except_count))
 
                 except KeyError:
                     print "departed", file
-                    departed_users.append((file, lines))
+                    departed_users.append(
+                            (file, delete_count, except_count))
 
-        for (user, lines) in real_users:
-            user_usage_msg(user, lines)
+        for (user, delete_count, except_count) in real_users:
+            user_usage_msg(user, delete_count, except_count)
 
         overall_usage_msg(real_users, system_users, departed_users)
+
 
 def overall_usage_msg(real_users, system_users, departed_users):
     """ Generate message for Administrators on usage counts.
@@ -202,8 +243,8 @@ def overall_usage_msg(real_users, system_users, departed_users):
     for user in sorted(departed_users, key=lambda tup: tup[1], reverse=True):
         print user
 
-def user_usage_msg(user, lines):
-    print "email_user", user, lines
+def user_usage_msg(user, delete_count, except_count):
+    print "email_user", user, delete_count, except_count
     pass
 #    message = """\
 #From: {0} 
@@ -265,7 +306,8 @@ def initialize_files(dir_name):
            # remove comments
            if line != '' and not line.startswith('#'):
                 try:
-                    userid = pwd.getpwnam(line).pw_uid
+                    userid = str(pwd.getpwnam(line).pw_uid)
+                    print "excepting", userid, line
                     user_exceptions.append(userid)
                 except KeyError:
                     sys.stderr.write(

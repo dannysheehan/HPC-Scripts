@@ -8,6 +8,11 @@ import subprocess
 import argparse
 import traceback
 import datetime
+import shutil
+import smtplib
+import pwd
+
+from email.mime.text import MIMEText
 
 LAST_ACCESS_TIME     = 5
 
@@ -19,8 +24,13 @@ FILES_TO_DELETE      = 'files_to_delete.raw'
 FIND_COMMAND         = '/usr/bin/find' 
 LINE_BUFFER          = 1024
 
+MAX_SYSTEM_UID       = 499
+
 # for testing
 FIND_DEPTH           = 2 
+
+path_exceptions = []
+user_excptions = []
 
 
 def find_files(args):
@@ -75,10 +85,14 @@ def create_user_files(args):
         sys.stderr.write('ERROR: You must run find first.\n')
         sys.exit(1)
 
+    # remove old cache and create a new one.
     user_cache_path = os.path.join(config_path, CACHE_DIR_NAME)
-    if not os.path.exists(user_cache_path):
-        print "creating ", user_cache_path
-        os.mkdir(user_cache_path)
+    if os.path.exists(user_cache_path):
+        print "removing tree and contents ", user_cache_path
+        shutil.rmtree(user_cache_path)
+    print "creating ", user_cache_path
+    os.mkdir(user_cache_path)
+
 
     file_handles = {}
     try:
@@ -108,10 +122,80 @@ def readlines(filename, bufsize=1024, line_terminator='\0'):
             for line in lines: yield line
             data = f.read(bufsize)
 
+def files_to_delete(file_list_path):
+    """ Return a list of the files to delete minus exceptions
+    """
+    #for file in readlines(file_list_path):
+    pass
+
+def files_to_except(files):
+    """ Return a list of the files that are excepted from deletion
+    """
+    pass
+
+
 def notify_users(args):
     (config_path, 
      user_exceptions,
      path_exceptions) = initialize_files(args.dirname)
+
+    departed_users = []
+    system_users = []
+    real_users = []
+    users_notified = 0
+
+    user_cache_path = os.path.join(config_path, CACHE_DIR_NAME)
+    if os.path.exists(user_cache_path):
+        print user_cache_path, " exists"
+        for file in os.listdir(user_cache_path):
+            if file.isdigit():
+                user_file_path = os.path.join(user_cache_path, file)
+                lines = len(list(readlines(user_file_path)))
+                user_uid = int(file)
+
+                try:
+                    username = pwd.getpwuid(user_uid).pw_name
+                    if user_uid < MAX_SYSTEM_UID:
+                        system_users.append((username, lines))
+                    else:
+                        real_users.append((username, lines))
+
+                except KeyError:
+                    print "departed", file
+                    departed_users.append((file, lines))
+
+        for (user, lines) in real_users:
+            user_usage_msg(user, lines)
+
+        overall_usage_msg(real_users, system_users, departed_users)
+
+def overall_usage_msg(real_users, system_users, departed_users):
+    """ Generate message for Administrators on usage counts.
+    """
+
+    print "Real Users"
+    for user in sorted(real_users, key=lambda tup: tup[1], reverse=True):
+        print user
+
+    print "System Users"
+    for user in sorted(system_users, key=lambda tup: tup[1], reverse=True):
+        print user
+
+    print "Departed Users"
+    for user in sorted(departed_users, key=lambda tup: tup[1], reverse=True):
+        print user
+
+def user_usage_msg(user, lines):
+    print "email_user", user, lines
+    pass
+#    message = """\
+#From: {0} 
+#To: {1}
+#Subject: {2}
+#
+#
+#""".format(from_addr, to_addr, subject)
+
 
 def remove_files(args):
     (config_path, 

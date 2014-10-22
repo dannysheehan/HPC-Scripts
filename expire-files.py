@@ -15,6 +15,9 @@ import pwd
 from email.mime.text import MIMEText
 
 LAST_ACCESS_TIME     = 3
+ADMIN_EMAIL          = 'admin'
+FROM_EMAIL           = 'admin@widgets.com'
+FROM_NAME            = 'Support'
 
 CONFIG_DIR_NAME      = '.expirefiles'
 CACHE_DIR_NAME       = 'USER_FILE_CACHE'
@@ -29,8 +32,6 @@ MAX_SYSTEM_UID       = 499
 # for testing
 FIND_DEPTH           = 2 
 
-path_exceptions = []
-user_exceptions = []
 
 
 def find_files(args):
@@ -43,6 +44,8 @@ def find_files(args):
     print "config_path = ", config_path
     print "user_exceptions = ", user_exceptions
     print "path_exceptions = ", path_exceptions
+
+
 
     files_to_delete_path  = os.path.join(config_path, FILES_TO_DELETE)
 
@@ -112,7 +115,8 @@ def create_user_files(args):
             file_handle.close()
 
 def readlines(filename, bufsize=1024, line_terminator='\0'):
-    """ Read null terminated files from filename.
+    """ Read terminated lines  from filename.
+    Default is null terminated lines.
     """
     buf = ''
     with open(filename, 'r') as f:
@@ -129,8 +133,6 @@ def count_files_to_delete(file_list_path, user_exceptions, path_exceptions):
     """
     files_to_delete = 0
 
-    print "files_to_delete(", file_list_path
-
     # check for user exception
     useruid =  os.path.basename(file_list_path)
     if useruid in user_exceptions:
@@ -142,7 +144,6 @@ def count_files_to_delete(file_list_path, user_exceptions, path_exceptions):
 
     # determine if the filepath is excepted.
     for filename in readlines(file_list_path):
-        print "filename =", filename, 
         for path_except in path_exceptions:
             if filename.find(path_except) == -1:
                 files_to_delete += 1
@@ -154,8 +155,6 @@ def count_files_to_except(file_list_path, user_exceptions, path_exceptions):
     """ Return a count of the number of files excepted from deletion.
     """
     files_to_except = 0
-
-    print "files_to_except(", file_list_path
 
     # check for user exception
     useruid =  os.path.basename(file_list_path)
@@ -217,36 +216,91 @@ def notify_users(args):
                             (username, delete_count, except_count))
 
                 except KeyError:
-                    print "departed", file
                     departed_users.append(
                             (file, delete_count, except_count))
 
-        for (user, delete_count, except_count) in real_users:
-            user_usage_msg(user, delete_count, except_count)
+        admin_msg = overall_usage_msg(real_users, system_users, departed_users)
 
-        overall_usage_msg(real_users, system_users, departed_users)
+        if args.check:
+            print "-- CHECKING --"
+            print admin_msg
+        else:
+            email_msg(ADMIN_EMAIL, admin_msg)
+            for (user, delete_count, except_count) in real_users:
+                msg = user_usage_msg(user, delete_count, except_count)
 
+
+def email_msg(user, message):
+    """ Mail user a message.
+    """
+    print "email_msg", user
 
 def overall_usage_msg(real_users, system_users, departed_users):
     """ Generate message for Administrators on usage counts.
     """
 
-    print "Real Users"
+    msg = """\
+Users with files that have not been accessed in {0} days.
+
+User, Delete File Count, Excepted File Count
+
+Real Users
+----------
+""".format(LAST_ACCESS_TIME)
+
     for user in sorted(real_users, key=lambda tup: tup[1], reverse=True):
-        print user
+        msg += '{0} {1} {2}\n'.format(user[0], user[1], user[2])
 
-    print "System Users"
+    msg += '\nSystem Users\n------------\n'
     for user in sorted(system_users, key=lambda tup: tup[1], reverse=True):
-        print user
+        msg += '{0} {1} {2}\n'.format(user[0], user[1], user[2])
 
-    print "Departed Users"
+    msg +=  "\nDeparted Users\n--------------\n"
     for user in sorted(departed_users, key=lambda tup: tup[1], reverse=True):
-        print user
+        msg += '{0} {1} {2}\n'.format(user[0], user[1], user[2])
+
+    return msg
+
 
 def user_usage_msg(user, delete_count, except_count):
-    print "email_user", user, delete_count, except_count
-    pass
-#    message = """\
+    """Generate message specific for user.
+    """
+
+    msg = """\
+Hi {0},
+
+This is system generated message.
+
+You have files that have not been accessed for over {1} days
+
+These files will be deleted on {2}.
+
+For a list of your files that will be deleted type the following
+command on a login node.
+
+   {3}
+
+If you would like to keep these files, you may request an exception
+from the scheduled deletion by writing to {4}.
+
+Please note that your exception will *ONLY* be effective for the
+currently scheduled deletion and you may *NOT* request an exception
+if you have already had one in place for the previous two deletion
+cycles.
+
+*If* you have received confirmation of your exception, you may see
+the list of files that have been excepted by entering the
+following command on a login node.
+
+   {3} --exceptions 
+
+    And in this case, no option should now return an empty list.
+
+Regards
+{4}
+{5}
+""".format(user)
+
 #From: {0} 
 #To: {1}
 #Subject: {2}
@@ -259,6 +313,10 @@ def remove_files(args):
     (config_path, 
      user_exceptions,
      path_exceptions) = initialize_files(args.dirname)
+    """Remove files under 'args.dirname' that have expired and
+    have no user or path exceptions.
+    """
+    pass
 
 def initialize_files(dir_name):
     """Initialize files and directories under 'dir_name'
@@ -337,31 +395,62 @@ def initialize_files(dir_name):
 
     return (config_path, user_exceptions, path_exceptions)
 
- 
+
+def list_files(args):
+    print "list_files(", args.user, args.exceptions
 
 def main():
+
+
+    #
+    # The command options are different depending on if the user is
+    # root or not.
+    #
+    # http://pymotw.com/2/pwd/
+    real_user = pwd.getpwuid(os.getuid()).pw_name
+
     parser = argparse.ArgumentParser(description='Expires files!')
-
     subparsers = parser.add_subparsers(help='commands')
+    list_parser = subparsers.add_parser(
+            'list', help='list files to be deleted')
+    list_parser.add_argument(
+            '--exceptions', help='list exceptions', action='store_true')
+    list_parser.set_defaults(func=list_files)
 
-    find_parser = subparsers.add_parser('find', help='find files')
-    find_parser.add_argument('dirname', action='store', help='Directory ')
-    find_parser.set_defaults(func=find_files)
+    if real_user != 'root':
+        list_parser.add_argument(
+            '--user', help='specify user', action='store', default=real_user)
+    else:
+        list_parser.add_argument(
+            '--user', help='specify user', action='store')
 
-    create_parser = subparsers.add_parser('create', help='create user files')
-    create_parser.add_argument('dirname', action='store', help='Directory ')
-    create_parser.set_defaults(func=create_user_files)
-
-    notify_parser = subparsers.add_parser('notify', help='notify users')
-    notify_parser.add_argument('dirname', action='store', help='Directory ')
-    notify_parser.set_defaults(func=notify_users)
-
-    remove_parser = subparsers.add_parser('remove', help='remove files')
-    remove_parser.add_argument('dirname', action='store', help='Directory ')
-    remove_parser.set_defaults(func=remove_files)
-
+        find_parser = subparsers.add_parser('find', help='find files')
+        find_parser.add_argument(
+                'dirname', action='store', help='Directory ')
+        find_parser.set_defaults(func=find_files)
+    
+        create_parser = subparsers.add_parser(
+                'create', help='create user files')
+        create_parser.add_argument(
+                'dirname', action='store', help='Directory ')
+    
+        notify_parser = subparsers.add_parser(
+                'notify', help='notify users')
+        notify_parser.add_argument(
+                'dirname', action='store', help='Directory ')
+        notify_parser.add_argument(
+                '--check', help='check mode', action="store_true")
+        notify_parser.set_defaults(func=notify_users)
+    
+        remove_parser = subparsers.add_parser(
+                'remove', help='remove files')
+        remove_parser.add_argument(
+                'dirname', action='store', help='Directory ')
+        remove_parser.set_defaults(func=remove_files)
+    
     args = parser.parse_args()
     args.func(args)
+
     return
 
         

@@ -13,35 +13,41 @@ import smtplib
 import pwd
 
 from email.mime.text import MIMEText
+from ConfigParser import SafeConfigParser
 
-LAST_ACCESS_TIME     = 3
-ADMIN_EMAIL          = 'admin'
-FROM_EMAIL           = 'admin@widgets.com'
-FROM_NAME            = 'Support'
 
 CONFIG_DIR_NAME      = '.expirefiles'
+CONFIG_FILE          = 'config.ini'
 CACHE_DIR_NAME       = 'USER_FILE_CACHE'
-USER_EXCEPTIONS_FILE = 'user_exceptions.txt'
-PATH_EXCEPTIONS_FILE = 'path_exceptions.txt'
 FILES_TO_DELETE      = 'files_to_delete.raw'
+
 FIND_COMMAND         = '/usr/bin/find' 
 LINE_BUFFER          = 1024
-
 MAX_SYSTEM_UID       = 499
-
+  
 # for testing
 FIND_DEPTH           = 2 
 
 
+class Config:
+  last_access_time     = 3
+  admin_email          = 'admin'
+  from_email           = 'admin@widgets.com'
+  from_name            = 'Support'
+  user_msg_template    = ''
+  
+
 
 def find_files(args):
-    """ find all files that have not been accessed in LAST_ACCESS_TIME days
+    """ find all files that have not been accessed in Config.last_access_time days
     """
     (config_path, 
+     find_path,
      user_exceptions,
      path_exceptions) = initialize_files(args.dirname)
 
     print "config_path = ", config_path
+    print "find_path = ", find_path
     print "user_exceptions = ", user_exceptions
     print "path_exceptions = ", path_exceptions
 
@@ -60,9 +66,9 @@ def find_files(args):
             os.remove(backup_file_path)
         os.rename(files_to_delete_path, backup_file_path)
 
-    cmd_args = [FIND_COMMAND, args.dirname,  
+    cmd_args = [FIND_COMMAND, find_path,  
                 '-maxdepth', '2', 
-                '-atime', '+' + str(LAST_ACCESS_TIME), 
+                '-atime', '+' + str(Config.last_access_time), 
                 '-type', 'f', 
                 '-fprint0', files_to_delete_path]
 
@@ -80,8 +86,10 @@ def create_user_files(args):
     """
 
     (config_path, 
+     find_path,
      user_exceptions,
      path_exceptions) = initialize_files(args.dirname)
+
 
     files_to_delete_path  = os.path.join(config_path, FILES_TO_DELETE)
     if not os.path.exists(files_to_delete_path):
@@ -176,6 +184,7 @@ def count_files_to_except(file_list_path, user_exceptions, path_exceptions):
 
 def notify_users(args):
     (config_path, 
+     find_path,
      user_exceptions,
      path_exceptions) = initialize_files(args.dirname)
 
@@ -225,7 +234,7 @@ def notify_users(args):
             print "-- CHECKING --"
             print admin_msg
         else:
-            email_msg(ADMIN_EMAIL, admin_msg)
+            email_msg(Config.admin_email, admin_msg)
             for (user, delete_count, except_count) in real_users:
                 msg = user_usage_msg(user, delete_count, except_count)
 
@@ -246,7 +255,7 @@ User, Delete File Count, Excepted File Count
 
 Real Users
 ----------
-""".format(LAST_ACCESS_TIME)
+""".format(Config.last_access_time)
 
     for user in sorted(real_users, key=lambda tup: tup[1], reverse=True):
         msg += '{0} {1} {2}\n'.format(user[0], user[1], user[2])
@@ -265,52 +274,17 @@ Real Users
 def user_usage_msg(user, delete_count, except_count):
     """Generate message specific for user.
     """
+    print "email ", user
+    print Config.user_msg_template
+    print Config.from_name
+    print Config.user_msg_template.format(
+           USERNAME=user, DELETE_DATE='tbd', COMMAND='tbd')
 
-    msg = """\
-Hi {0},
-
-This is system generated message.
-
-You have files that have not been accessed for over {1} days
-
-These files will be deleted on {2}.
-
-For a list of your files that will be deleted type the following
-command on a login node.
-
-   {3}
-
-If you would like to keep these files, you may request an exception
-from the scheduled deletion by writing to {4}.
-
-Please note that your exception will *ONLY* be effective for the
-currently scheduled deletion and you may *NOT* request an exception
-if you have already had one in place for the previous two deletion
-cycles.
-
-*If* you have received confirmation of your exception, you may see
-the list of files that have been excepted by entering the
-following command on a login node.
-
-   {3} --exceptions 
-
-    And in this case, no option should now return an empty list.
-
-Regards
-{4}
-{5}
-""".format(user)
-
-#From: {0} 
-#To: {1}
-#Subject: {2}
-#
-#
-#""".format(from_addr, to_addr, subject)
 
 
 def remove_files(args):
     (config_path, 
+     find_path,
      user_exceptions,
      path_exceptions) = initialize_files(args.dirname)
     """Remove files under 'args.dirname' that have expired and
@@ -333,10 +307,15 @@ def initialize_files(dir_name):
     user_exceptions = []
     path_exceptions = []
 
+    # get full path 
     dir_path = os.path.abspath(dir_name)
     if not os.path.exists(dir_path):
         print "path %s does not exist" % dir_path
-        sys.exit(0)
+        sys.exit(1)
+
+    if os.path.islink(dir_path):
+        print "path %s is symlink" % dir_path
+        sys.exit(1)
 
     # create expected paths and files if they don't already exist.
     config_path = os.path.join(dir_path, CONFIG_DIR_NAME)
@@ -344,64 +323,100 @@ def initialize_files(dir_name):
         print "creating ", config_path
         os.mkdir(config_path)
 
-
-    # load "user exceptions" or create empty file if none exists
-    user_exceptions_path = os.path.join(config_path, USER_EXCEPTIONS_FILE)
-    if not os.path.exists(user_exceptions_path):
-        print "creating ", user_exceptions_path
-        with open(os.path.join(config_path, USER_EXCEPTIONS_FILE), 'w') as f:
+    config_file_path = os.path.join(config_path, CONFIG_FILE)
+    if not os.path.exists(config_file_path):
+        print "creating ", config_file_path
+        with open(os.path.join(config_path, CONFIG_FILE), 'w') as f:
             f.write(
 """
-# User exceptions file. 
-# - list of users whose files are excluded from deletion.
-# userx
-# usery
+[DEFAULT]
+last_access_time  = 3
+admin_email       = admin
+from_email        = admin@widgets.com
+from_name         = Support
+
+[exceptions]
+user = 
+   root
+path =
+   /no-delete/
+   /.
+
+[messages]
+user =
+  .Hi {USERNAME},
+  . 
+  .This is system generated message.
+  . 
+  .You have files that have not been accessed for over %(last_access_time)s days
+  . 
+  .These files will be deleted on {DELETE_DATE}.
+  .
+  .For a list of your files that will be deleted type the following
+  .command on a login node.
+  . 
+  .   {COMMAND}
+  .  
+  .If you would like to keep these files, you may request an exception
+  .from the scheduled deletion by writing to %(from_email)s.
+  . 
+  .Please note that your exception will *ONLY* be effective for the
+  .currently scheduled deletion and you may *NOT* request an exception
+  .if you have already had one in place for the previous two deletion
+  .cycles.
+  . 
+  .*If* you have received confirmation of your exception, you may see
+  .the list of files that have been excepted by entering the
+  .following command on a login node.
+  .  
+  .  {COMMAND} --exceptions 
+  . 
+  .    And in this case, no option should now return an empty list.
+  . 
+  .  Regards
+  .  %(from_name)s 
+  .  %(from_email)s 
 """
            )
-    with open(os.path.join(config_path, USER_EXCEPTIONS_FILE), 'rU') as f:
-        for line in f:
-           line = line.strip()
-           # remove comments
-           if line != '' and not line.startswith('#'):
-                try:
-                    userid = str(pwd.getpwnam(line).pw_uid)
-                    print "excepting", userid, line
-                    user_exceptions.append(userid)
-                except KeyError:
-                    sys.stderr.write(
-                      'ERROR: invalid username in user exceptions file ' + \
-                      line + '\n' )
-                    sys.exit(2)
 
-    # load "path exceptions" or create empty file if none exists
-    path_exceptions_path = os.path.join(config_path, PATH_EXCEPTIONS_FILE)
-    if not os.path.exists(path_exceptions_path):
-        print "creating ", path_exceptions_path
-        with open(os.path.join(config_path, PATH_EXCEPTIONS_FILE), 'w') as f:
-            f.write(
-"""
-# Path exceptions file. 
-# - list of paths that are excluded from deletion.
-# /dirx/
-# /diry/filey
-"""
-           )
-    with open(os.path.join(config_path, PATH_EXCEPTIONS_FILE), 'rU') as f:
-        for line in f:
-           line = line.strip()
-           # remove comments
-           if line != '' and not line.startswith('#'):
-                path_exceptions.append(line)
+    # load configuration
+    parser = SafeConfigParser()
+    parser.read(config_file_path)
+   
+    Config.last_access_time = parser.get('messages', 'last_access_time')
+    Config.from_email = parser.get('messages', 'from_email')
+    Config.from_name = parser.get('messages', 'from_name')
+    Config.user_msg_template = parser.get('messages', 'user')
 
-    return (config_path, user_exceptions, path_exceptions)
+
+    # load "user exceptions" 
+    for e in parser.get('exceptions', 'user').split('\n'):
+        e = e.strip()
+        if e != '' and not e.startswith('#'):
+            try:
+                userid = str(pwd.getpwnam(e).pw_uid)
+                print "excepting", userid, e
+                user_exceptions.append(userid)
+            except KeyError:
+                sys.stderr.write(
+                    'ERROR: invalid username in user exceptions file -> ' + \
+                    e + '\n' )
+                sys.exit(2)
+
+    # load "path exceptions"
+    for e in parser.get('exceptions', 'path').split('\n'):
+        e = e.strip()
+        if e != '' and not e.startswith('#'):
+            path_exceptions.append(e)
+
+    return (config_path, dir_path, user_exceptions, path_exceptions)
 
 
 def list_files(args):
     print "list_files(", args.user, args.exceptions
 
+
 def main():
-
-
     #
     # The command options are different depending on if the user is
     # root or not.
@@ -421,6 +436,7 @@ def main():
         list_parser.add_argument(
             '--user', help='specify user', action='store', default=real_user)
     else:
+
         list_parser.add_argument(
             '--user', help='specify user', action='store')
 

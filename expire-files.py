@@ -142,40 +142,63 @@ def readlines(filename, bufsize=1024, line_terminator='\0'):
 def count_files_to_delete(file_list_path, user_exceptions, path_exceptions):
     """ Return a count of the number of files to delete based on exceptions.
     """
-    return len(list(list_files_to_delete(
+    return len(list(list_user_files_to_delete(
                  file_list_path, user_exceptions, path_exceptions)))
 
-
-def list_files_to_delete(file_list_path, user_exceptions, path_exceptions):
+def list_all_files_to_delete(file_list_dir, user_exceptions, path_exceptions):
     """ Return a count of the number of files to delete based on exceptions.
     """
-    print "list_files_to_delete", file_list_path
+    for file in os.listdir(file_list_dir):
+        if not file.isdigit(): continue
+
+        user_file_path = os.path.join(file_list_dir, file)
+        for filename in list_user_files_to_delete(
+                user_file_path,
+                user_exceptions,
+                path_exceptions): yield filename
+
+def list_user_files_to_delete(file_list_path, user_exceptions, path_exceptions):
+    """ Return a count of the number of files to delete based on exceptions.
+    """
+    #print "list_user_files_to_delete", file_list_path
 
     # check for user exception
     useruid =  os.path.basename(file_list_path)
-    if int(useruid) not in user_exceptions:
-       yield 
+    if int(useruid) in user_exceptions:
+       return
     else:
         # determine if the filepath is excepted.
         for filename in readlines(file_list_path):
-            no_exception = [e for e in path_exceptions 
-                                if filename.find(e) == -1 ]
-            if no_exception:
+            is_exception = [e for e in path_exceptions 
+                                if filename.find(e) != -1 ]
+            if not is_exception:
                 yield filename
 
 
 def count_files_to_except(file_list_path, user_exceptions, path_exceptions):
     """ Return a count of the number of files to except based on exceptions.
     """
-    return len(list(list_files_to_except(
+    return len(list(list_user_files_to_except(
                  file_list_path, user_exceptions, path_exceptions)))
 
+def list_all_files_to_except(file_list_dir, user_exceptions, path_exceptions):
+    """ Return a count of the number of files to except based on exceptions.
+    """
+    for file in os.listdir(file_list_dir):
+        if not file.isdigit(): continue
 
-def list_files_to_except(file_list_path, user_exceptions, path_exceptions):
+        user_file_path = os.path.join(file_list_dir, file)
+        for filename in list_user_files_to_except(
+                user_file_path,
+                user_exceptions,
+                path_exceptions): yield filename
+
+
+def list_user_files_to_except(file_list_path, user_exceptions, path_exceptions):
     """ Return a count of the number of files excepted from deletion.
     """
 
-    print "list_files_to_except", file_list_path
+    #print "list_user_files_to_except", file_list_path
 
     # check for user exception
     useruid =  os.path.basename(file_list_path)
@@ -481,7 +504,6 @@ user =
     for e in parser.get('exceptions', 'path').split('\n'):
         e = e.strip()
         if e != '' and not e.startswith('#'):
-            print "excepting", e
             path_exceptions.append(e)
 
     return (config_path, dir_path, user_exceptions, path_exceptions)
@@ -493,13 +515,46 @@ def list_files(args):
      user_exceptions,
      path_exceptions) = initialize_files(args.dirname)
 
-    print "config_path = ", config_path
-    print "find_path = ", find_path
-    print "user_exceptions = ", user_exceptions
-    print "path_exceptions = ", path_exceptions
+    #print "config_path = ", config_path
+    #print "find_path = ", find_path
+    #print "user_exceptions = ", user_exceptions
+    #print "path_exceptions = ", path_exceptions
 
-    print "list_files(", args.user, args.exceptions
+    #print "list_files(", args.user, args.exceptions
 
+    user_cache_path = os.path.join(config_path, CACHE_DIR_NAME)
+    assert os.path.exists(user_cache_path)
+
+    if args.user == None:
+        if args.exceptions:
+            for file in list_all_files_to_except(
+                    user_cache_path, user_exceptions, path_exceptions):
+                print file
+        else:
+            for file in list_all_files_to_delete(
+                    user_cache_path, user_exceptions, path_exceptions):
+                print file
+
+    else:
+        user_uid = check_user_exists(args.user)
+        if user_uid == None:
+            sys.stderr.write(
+                'ERROR: invalid username -> ' + args.user + '\n' )
+            sys.exit(1)
+
+        user_file_path = os.path.join(user_cache_path, user_uid)
+        if not os.path.exists(user_file_path):
+            print("User {0} has no files to delete".format(args.user))
+            sys.exit(0)
+
+        if args.exceptions:
+            for file in list_user_files_to_except(
+                    user_file_path, user_exceptions, path_exceptions):
+                print file
+        else:
+            for file in list_user_files_to_delete(
+                    user_file_path, user_exceptions, path_exceptions):
+                print file
 
 def main():
     #

@@ -30,7 +30,8 @@ FIND_DEPTH           = 2
 
 
 class Config:
-  last_access_time     = 3
+  last_access_days     = 3
+  notify_days          = 7
   admin_email          = 'admin'
   from_email           = 'admin@widgets.com'
   from_name            = 'Support'
@@ -39,7 +40,7 @@ class Config:
 
 
 def find_files(args):
-    """ find all files that have not been accessed in Config.last_access_time days
+    """ find all files that have not been accessed in Config.last_access_days days
     """
     (config_path, 
      find_path,
@@ -68,7 +69,7 @@ def find_files(args):
 
     cmd_args = [FIND_COMMAND, find_path,  
                 '-maxdepth', '2', 
-                '-atime', '+' + str(Config.last_access_time), 
+                '-atime', '+' + str(Config.last_access_days), 
                 '-type', 'f', 
                 '-fprint0', files_to_delete_path]
 
@@ -122,6 +123,7 @@ def create_user_files(args):
         for file_handle in file_handles.values():
             file_handle.close()
 
+
 def readlines(filename, bufsize=1024, line_terminator='\0'):
     """ Read terminated lines  from filename.
     Default is null terminated lines.
@@ -136,107 +138,171 @@ def readlines(filename, bufsize=1024, line_terminator='\0'):
             for line in lines: yield line
             data = f.read(bufsize)
 
+
 def count_files_to_delete(file_list_path, user_exceptions, path_exceptions):
     """ Return a count of the number of files to delete based on exceptions.
     """
-    files_to_delete = 0
+    return len(list(list_files_to_delete(
+                 file_list_path, user_exceptions, path_exceptions)))
+
+
+def list_files_to_delete(file_list_path, user_exceptions, path_exceptions):
+    """ Return a count of the number of files to delete based on exceptions.
+    """
+    print "list_files_to_delete", file_list_path
 
     # check for user exception
     useruid =  os.path.basename(file_list_path)
-    if useruid in user_exceptions:
-        return 0
-
-    # if there are no exceptions then all files should be deleted.
-    if not len(path_exceptions):
-        return len(list(readlines(file_list_path)))
-
-    # determine if the filepath is excepted.
-    for filename in readlines(file_list_path):
-        for path_except in path_exceptions:
-            if filename.find(path_except) == -1:
-                files_to_delete += 1
-
-    return files_to_delete
+    if int(useruid) not in user_exceptions:
+       yield 
+    else:
+        # determine if the filepath is excepted.
+        for filename in readlines(file_list_path):
+            no_exception = [e for e in path_exceptions 
+                                if filename.find(e) == -1 ]
+            if no_exception:
+                yield filename
 
 
 def count_files_to_except(file_list_path, user_exceptions, path_exceptions):
+    """ Return a count of the number of files to except based on exceptions.
+    """
+    return len(list(list_files_to_except(
+                 file_list_path, user_exceptions, path_exceptions)))
+
+
+def list_files_to_except(file_list_path, user_exceptions, path_exceptions):
     """ Return a count of the number of files excepted from deletion.
     """
-    files_to_except = 0
+
+    print "list_files_to_except", file_list_path
 
     # check for user exception
     useruid =  os.path.basename(file_list_path)
-    if useruid in user_exceptions:
-        return len(list(readlines(file_list_path)))
 
-    # Check if there are exceptions.
-    if not len(path_exceptions):
-        return 0
+    if int(useruid) in user_exceptions:
+        for filename in readlines(file_list_path):
+            yield filename
+    else:
+        # determine if the filepath is excepted.
+        for filename in readlines(file_list_path):
+            is_exception = [e for e in path_exceptions 
+                               if filename.find(e) != -1 ]
+            if is_exception:
+                yield filename
 
-    # determine if the filepath is excepted.
+def append_user_file_counts(
+        file_counts_list, file_list_path, user_exceptions, path_exceptions):
+    """Append user file counts to file_counts list
+    """
+
+    exception_count = 0
+    total_count = 0
+    deletion_count = 0
+    user_type = ''
+
+    # path exceptions
+    user_name = os.path.basename(file_list_path)
+
+    assert user_name.isdigit()
+    user_uid  = int(user_name)
+
+    try:
+        user_name = pwd.getpwuid(user_uid).pw_name
+        if user_uid < MAX_SYSTEM_UID:
+            user_type = 'SYSTEM'
+        else:
+            user_type = 'REAL'
+    except KeyError:
+        user_type = 'DEPARTED'
+
     for filename in readlines(file_list_path):
-        for path_except in path_exceptions:
-            if filename.find(path_except) != -1:
-                files_to_except += 1
+        total_count += 1
+        if user_uid in user_exceptions:
+            exception_count += 1
+        else:
+            is_exception = [e for e in path_exceptions 
+                               if filename.find(e) != -1 ]
+            if is_exception:
+                exception_count += 1
+            else:
+                deletion_count += 1
 
-    return files_to_except
+    print user_uid, total_count, deletion_count, exception_count
+    assert total_count == exception_count + deletion_count
+
+    file_counts_list.append(
+        (user_name, user_type, total_count, deletion_count, exception_count))
+
+
+def check_user_exists(username):
+    """check if the specified user exists and returns uid if user does.
+    """
+
+    try:
+        user_uid = str(pwd.getpwnam(username).pw_uid)
+    except KeyError:
+        return None
+
+    return user_uid
 
 
 def notify_users(args):
+    """ Notify user/s that they have files that will be deleted.
+    """
+
     (config_path, 
      find_path,
      user_exceptions,
      path_exceptions) = initialize_files(args.dirname)
 
-    departed_users = []
-    system_users = []
-    real_users = []
-    users_notified = 0
+    file_counts_list = []
 
     user_cache_path = os.path.join(config_path, CACHE_DIR_NAME)
-    if os.path.exists(user_cache_path):
-        print user_cache_path, " exists"
+    assert os.path.exists(user_cache_path)
+
+    # Notify one user
+    if args.user:
+        user_uid = check_user_exists(args.user)
+        if user_uid == None:
+            sys.stderr.write(
+                'ERROR: invalid username -> ' + args.user + '\n' )
+            sys.exit(1)
+
+        user_file_path = os.path.join(user_cache_path, user_uid)
+        if not os.path.exists(user_file_path):
+            print("User {0} has no files to delete".format(args.user))
+            sys.exit(0)
+
+        append_user_file_counts(
+            file_counts_list,
+            user_file_path,
+            user_exceptions,
+            path_exceptions)
+
+    # Notify all users
+    else:
         for file in os.listdir(user_cache_path):
-            if file.isdigit():
-                user_file_path = os.path.join(user_cache_path, file)
-                total_count  = len(list(readlines(user_file_path)))
-                user_uid = int(file)
 
-                delete_count = count_files_to_delete(
-                            user_file_path,
-                            user_exceptions,
-                            path_exceptions)
+            if not file.isdigit(): continue
 
-                except_count = count_files_to_except(
-                            user_file_path,
-                            user_exceptions,
-                            path_exceptions)
+            user_file_path = os.path.join(user_cache_path, file)
+            append_user_file_counts(
+                file_counts_list,
+                user_file_path,
+                user_exceptions,
+                path_exceptions)
 
-                print total_count, delete_count, except_count
-                assert total_count == delete_count + except_count
 
-                try:
-                    username = pwd.getpwuid(user_uid).pw_name
-                    if user_uid < MAX_SYSTEM_UID:
-                        system_users.append(
-                            (username, delete_count, except_count))
-                    else:
-                        real_users.append(
-                            (username, delete_count, except_count))
-
-                except KeyError:
-                    departed_users.append(
-                            (file, delete_count, except_count))
-
-        admin_msg = overall_usage_msg(real_users, system_users, departed_users)
-
-        if args.check:
-            print "-- CHECKING --"
-            print admin_msg
-        else:
-            email_msg(Config.admin_email, admin_msg)
-            for (user, delete_count, except_count) in real_users:
-                msg = user_usage_msg(user, delete_count, except_count)
+    admin_msg = overall_usage_msg(file_counts_list)
+    
+    if args.check:
+        print "-- CHECKING --"
+        print admin_msg
+    else:
+        email_msg(Config.admin_email, admin_msg)
+        for user in file_counts_list:
+            msg = user_usage_msg(user)
 
 
 def email_msg(user, message):
@@ -244,42 +310,44 @@ def email_msg(user, message):
     """
     print "email_msg", user
 
-def overall_usage_msg(real_users, system_users, departed_users):
+def overall_usage_msg(file_counts_list):
     """ Generate message for Administrators on usage counts.
     """
 
     msg = """\
 Users with files that have not been accessed in {0} days.
 
-User, Delete File Count, Excepted File Count
+User, TotalFileCount DeleteFileCount ExceptedFileCount
 
 Real Users
 ----------
-""".format(Config.last_access_time)
+""".format(Config.last_access_days)
 
-    for user in sorted(real_users, key=lambda tup: tup[1], reverse=True):
-        msg += '{0} {1} {2}\n'.format(user[0], user[1], user[2])
+    real_users = [ u for u in file_counts_list if u[1] == 'REAL' ]
+    for user in sorted(real_users, key=lambda tup: tup[2], reverse=True):
+        msg += '{0} {1} {2} {3}\n'.format(user[0], user[2], user[3], user[4])
 
     msg += '\nSystem Users\n------------\n'
-    for user in sorted(system_users, key=lambda tup: tup[1], reverse=True):
-        msg += '{0} {1} {2}\n'.format(user[0], user[1], user[2])
+    system_users = [ u for u in file_counts_list if u[1] == 'SYSTEM' ]
+    for user in sorted(system_users, key=lambda tup: tup[2], reverse=True):
+        msg += '{0} {1} {2} {3}\n'.format(user[0], user[2], user[3], user[4])
 
     msg +=  "\nDeparted Users\n--------------\n"
-    for user in sorted(departed_users, key=lambda tup: tup[1], reverse=True):
-        msg += '{0} {1} {2}\n'.format(user[0], user[1], user[2])
+    departed_users = [ u for u in file_counts_list if u[1] == 'DEPARTED' ]
+    for user in sorted(departed_users, key=lambda tup: tup[2], reverse=True):
+        msg += '{0} {1} {2} {3}\n'.format(user[0], user[2], user[3], user[4])
 
     return msg
 
 
-def user_usage_msg(user, delete_count, except_count):
+def user_usage_msg(user):
     """Generate message specific for user.
     """
-    print "email ", user
-    print Config.user_msg_template
-    print Config.from_name
-    print Config.user_msg_template.format(
-           USERNAME=user, DELETE_DATE='tbd', COMMAND='tbd')
 
+    user_name = user[0]
+    print "email ", user_name
+    print Config.user_msg_template.format(
+           USERNAME=user_name, DELETE_DATE='tbd', COMMAND='tbd')
 
 
 def remove_files(args):
@@ -330,7 +398,8 @@ def initialize_files(dir_name):
             f.write(
 """
 [DEFAULT]
-last_access_time  = 3
+last_access_days  = 3
+notify_days       = 7
 admin_email       = admin
 from_email        = admin@widgets.com
 from_name         = Support
@@ -348,7 +417,7 @@ user =
   . 
   .This is system generated message.
   . 
-  .You have files that have not been accessed for over %(last_access_time)s days
+  .You have files that have not been accessed for over %(last_access_days)s days
   . 
   .These files will be deleted on {DELETE_DATE}.
   .
@@ -383,7 +452,7 @@ user =
     parser = SafeConfigParser()
     parser.read(config_file_path)
    
-    Config.last_access_time = parser.get('messages', 'last_access_time')
+    Config.last_access_days = parser.get('messages', 'last_access_days')
     Config.from_email = parser.get('messages', 'from_email')
     Config.from_name = parser.get('messages', 'from_name')
     Config.user_msg_template = parser.get('messages', 'user')
@@ -391,11 +460,16 @@ user =
 
     # load "user exceptions" 
     for e in parser.get('exceptions', 'user').split('\n'):
+
         e = e.strip()
-        if e != '' and not e.startswith('#'):
+        if e == '' or e.startswith('#'):
+            continue
+
+        if e.isdigit():
+            user_exceptions.append(int(e))
+        else:
             try:
-                userid = str(pwd.getpwnam(e).pw_uid)
-                print "excepting", userid, e
+                userid = pwd.getpwnam(e).pw_uid
                 user_exceptions.append(userid)
             except KeyError:
                 sys.stderr.write(
@@ -407,12 +481,23 @@ user =
     for e in parser.get('exceptions', 'path').split('\n'):
         e = e.strip()
         if e != '' and not e.startswith('#'):
+            print "excepting", e
             path_exceptions.append(e)
 
     return (config_path, dir_path, user_exceptions, path_exceptions)
 
 
 def list_files(args):
+    (config_path, 
+     find_path,
+     user_exceptions,
+     path_exceptions) = initialize_files(args.dirname)
+
+    print "config_path = ", config_path
+    print "find_path = ", find_path
+    print "user_exceptions = ", user_exceptions
+    print "path_exceptions = ", path_exceptions
+
     print "list_files(", args.user, args.exceptions
 
 
@@ -428,6 +513,8 @@ def main():
     subparsers = parser.add_subparsers(help='commands')
     list_parser = subparsers.add_parser(
             'list', help='list files to be deleted')
+    list_parser.add_argument(
+                'dirname', action='store', help='Directory ')
     list_parser.add_argument(
             '--exceptions', help='list exceptions', action='store_true')
     list_parser.set_defaults(func=list_files)
@@ -456,6 +543,8 @@ def main():
                 'dirname', action='store', help='Directory ')
         notify_parser.add_argument(
                 '--check', help='check mode', action="store_true")
+        notify_parser.add_argument(
+            '--user', help='specify user', action='store')
         notify_parser.set_defaults(func=notify_users)
     
         remove_parser = subparsers.add_parser(

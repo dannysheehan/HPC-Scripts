@@ -40,7 +40,8 @@ class Config:
 
 
 def find_files(args):
-    """ find all files that have not been accessed in Config.last_access_days days
+    """ find all files that have not been accessed in 
+    Config.last_access_days days
     """
     (config_path, 
      find_path,

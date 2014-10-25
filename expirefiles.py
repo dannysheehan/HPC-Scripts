@@ -326,19 +326,21 @@ def notify_users(args):
     else:
         email_msg(Config.admin_email, admin_msg)
         for user in file_counts_list:
-            msg = user_usage_msg(user)
+            # only notify real users.
+            if user[1] == 'REAL':
+                msg = user_usage_msg(user)
 
 
 def email_msg(user, message):
     """ Mail user a message.
     """
-    print "email_msg", user
+    print "email_msg", user, message
 
 def overall_usage_msg(file_counts_list):
     """ Generate message for Administrators on usage counts.
     """
 
-    msg = """\
+    msg = """
 Users with files that have not been accessed in {0} days.
 
 User, TotalFileCount DeleteFileCount ExceptedFileCount
@@ -539,9 +541,13 @@ def list_files(args):
     else:
         user_uid = check_user_exists(args.user)
         if user_uid == None:
-            sys.stderr.write(
-                'ERROR: invalid username -> ' + args.user + '\n' )
-            sys.exit(1)
+            if args.user.isdigit():
+                user_uid = args.user
+            else:
+                sys.stderr.write(
+                    'ERROR: invalid username -> ' + args.user + '\n' )
+                sys.exit(1)
+
 
         user_file_path = os.path.join(user_cache_path, user_uid)
         if not os.path.exists(user_file_path):

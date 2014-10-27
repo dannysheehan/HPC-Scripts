@@ -32,7 +32,6 @@ FIND_DEPTH           = 2
 class Config:
   last_access_days     = 3
   notify_days          = 7
-  user_command         = 'expirefiles.py'
   admin_email          = 'admin'
   from_email           = 'admin@widgets.com'
   from_name            = 'Support'
@@ -354,7 +353,8 @@ def notify_users(args):
         for user in file_counts_list:
             # only notify real users.
             if user[1] == 'REAL':
-                msg = user_usage_msg(user, deletion_datestr)
+                user_command = __file__ + ' list ' + find_path
+                msg = user_usage_msg(user, deletion_datestr, user_command)
                 email_msg(user[0], msg)
 
 
@@ -396,7 +396,7 @@ Real Users
     return msg
 
 
-def user_usage_msg(user, deletion_datestr):
+def user_usage_msg(user, deletion_datestr, user_command):
     """Generate message specific for user.
     """
 
@@ -406,7 +406,7 @@ def user_usage_msg(user, deletion_datestr):
     return Config.user_msg_template.format(
            USERNAME=user_gecos,
            DELETE_DATE=deletion_datestr,
-           COMMAND=Config.user_command)
+           COMMAND=user_command)
 
 
 def remove_files(args):
@@ -458,7 +458,6 @@ def initialize_files(dir_name):
 """
 [DEFAULT]
 last_access_days  = 60
-user_command      = expirefiles.py
 notify_days       = 30 
 admin_email       = admin
 from_email        = admin@widgets.com

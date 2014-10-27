@@ -32,12 +32,14 @@ FIND_DEPTH           = 2
 class Config:
   last_access_days     = 3
   notify_days          = 7
+  user_command         = 'expirefiles.py'
   admin_email          = 'admin'
   from_email           = 'admin@widgets.com'
   from_name            = 'Support'
   user_msg_template    = ''
   
 
+    
 
 def find_files(args):
     """ find all files that have not been accessed in 
@@ -48,10 +50,10 @@ def find_files(args):
      user_exceptions,
      path_exceptions) = initialize_files(args.dirname)
 
-    print "config_path = ", config_path
-    print "find_path = ", find_path
-    print "user_exceptions = ", user_exceptions
-    print "path_exceptions = ", path_exceptions
+    #print "config_path = ", config_path
+    #print "find_path = ", find_path
+    #print "user_exceptions = ", user_exceptions
+    #print "path_exceptions = ", path_exceptions
 
 
 
@@ -252,7 +254,7 @@ def append_user_file_counts(
             else:
                 deletion_count += 1
 
-    print user_uid, total_count, deletion_count, exception_count
+    # print user_uid, total_count, deletion_count, exception_count
     assert total_count == exception_count + deletion_count
 
     file_counts_list.append(
@@ -270,6 +272,18 @@ def check_user_exists(username):
 
     return user_uid
 
+def calculate_deletion_date(filepath):
+    """ based on the date the find was last run returns the 
+    deletion date
+    """
+    if not os.path.exists(filepath):
+        print("There are no files to delete. No find has been run.")
+        sys.exit(0)
+    else:
+        deletion_date = datetime.datetime.fromtimestamp(
+            os.path.getmtime(filepath)) + \
+            datetime.timedelta(days=Config.notify_days)
+        return deletion_date
 
 def notify_users(args):
     """ Notify user/s that they have files that will be deleted.
@@ -284,6 +298,18 @@ def notify_users(args):
 
     user_cache_path = os.path.join(config_path, CACHE_DIR_NAME)
     assert os.path.exists(user_cache_path)
+
+    files_to_delete_path = os.path.join(config_path, FILES_TO_DELETE)
+    deletion_date = calculate_deletion_date(files_to_delete_path)
+    deletion_datestr =  deletion_date.strftime('%a %d %B %Y')
+
+    now_time = datetime.datetime.now()
+    if now_time > deletion_date:
+        print(
+          'Scheduled deletion would have occurred on {0}'.
+          format(deletion_datestr))
+        sys.exit(0)
+
 
     # Notify one user
     if args.user:
@@ -318,7 +344,7 @@ def notify_users(args):
                 path_exceptions)
 
 
-    admin_msg = overall_usage_msg(file_counts_list)
+    admin_msg = overall_usage_msg(file_counts_list, deletion_datestr)
     
     if args.check:
         print "-- CHECKING --"
@@ -328,7 +354,8 @@ def notify_users(args):
         for user in file_counts_list:
             # only notify real users.
             if user[1] == 'REAL':
-                msg = user_usage_msg(user)
+                msg = user_usage_msg(user, deletion_datestr)
+                email_msg(user[0], msg)
 
 
 def email_msg(user, message):
@@ -336,18 +363,21 @@ def email_msg(user, message):
     """
     print "email_msg", user, message
 
-def overall_usage_msg(file_counts_list):
+
+def overall_usage_msg(file_counts_list, deletion_datestr):
     """ Generate message for Administrators on usage counts.
     """
 
     msg = """
-Users with files that have not been accessed in {0} days.
+Deletion is scheduled to occur on {1}.
+
+Counts of files that have not been accessed in {0} days.
 
 User, TotalFileCount DeleteFileCount ExceptedFileCount
 
 Real Users
 ----------
-""".format(Config.last_access_days)
+""".format(Config.last_access_days, deletion_datestr)
 
     real_users = [ u for u in file_counts_list if u[1] == 'REAL' ]
     for user in sorted(real_users, key=lambda tup: tup[2], reverse=True):
@@ -366,14 +396,17 @@ Real Users
     return msg
 
 
-def user_usage_msg(user):
+def user_usage_msg(user, deletion_datestr):
     """Generate message specific for user.
     """
 
     user_name = user[0]
-    print "email ", user_name
-    print Config.user_msg_template.format(
-           USERNAME=user_name, DELETE_DATE='tbd', COMMAND='tbd')
+    user_gecos = pwd.getpwnam(user_name).pw_gecos
+    
+    return Config.user_msg_template.format(
+           USERNAME=user_gecos,
+           DELETE_DATE=deletion_datestr,
+           COMMAND=Config.user_command)
 
 
 def remove_files(args):
@@ -424,8 +457,9 @@ def initialize_files(dir_name):
             f.write(
 """
 [DEFAULT]
-last_access_days  = 3
-notify_days       = 7
+last_access_days  = 60
+user_command      = expirefiles.py
+notify_days       = 30 
 admin_email       = admin
 from_email        = admin@widgets.com
 from_name         = Support
@@ -477,12 +511,14 @@ user =
     # load configuration
     parser = SafeConfigParser()
     parser.read(config_file_path)
-   
-    Config.last_access_days = parser.get('messages', 'last_access_days')
+  
+    # TBD check configuration needed - sanity checks.
+    Config.last_access_days = int(parser.get(
+                                       'messages', 'last_access_days'))
+    Config.notify_days = int(parser.get('messages', 'notify_days'))
     Config.from_email = parser.get('messages', 'from_email')
     Config.from_name = parser.get('messages', 'from_name')
     Config.user_msg_template = parser.get('messages', 'user')
-
 
     # load "user exceptions" 
     for e in parser.get('exceptions', 'user').split('\n'):
@@ -527,6 +563,24 @@ def list_files(args):
 
     user_cache_path = os.path.join(config_path, CACHE_DIR_NAME)
     assert os.path.exists(user_cache_path)
+
+    files_to_delete_path = os.path.join(config_path, FILES_TO_DELETE)
+    deletion_date = calculate_deletion_date(files_to_delete_path)
+    deletion_datestr =  deletion_date.strftime('%a %d %B %Y')
+
+    now_time = datetime.datetime.now()
+    if now_time > deletion_date:
+        sys.stderr.write(
+          'Scheduled deletion would have already occurred on ' + \
+          format(deletion_datestr) + '\n')
+        sys.exit(0)
+
+    if args.check:
+        print('Scheduled deletion is scheduled to occurr on {0}'.
+                format(deletion_datestr))
+        sys.exit(0)
+        
+
 
     if args.user == None:
         if args.exceptions:
@@ -579,6 +633,8 @@ def main():
                 'dirname', action='store', help='Directory ')
     list_parser.add_argument(
             '--exceptions', help='list exceptions', action='store_true')
+    list_parser.add_argument(
+                '--check', help='check mode', action="store_true")
     list_parser.set_defaults(func=list_files)
 
     if real_user != 'root':

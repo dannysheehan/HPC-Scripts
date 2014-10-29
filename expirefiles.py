@@ -38,6 +38,15 @@ class Config:
   user_msg_template    = ''
   
 
+def find_files(args):
+    """ find all files that have not been accessed in 
+    Config.last_access_days days
+    """
+    (config_path, 
+     find_path,
+     user_exceptions,
+     path_exceptions) = load_configuration(args.dirname)
+
     
 
 def find_files(args):
@@ -47,7 +56,7 @@ def find_files(args):
     (config_path, 
      find_path,
      user_exceptions,
-     path_exceptions) = initialize_files(args.dirname)
+     path_exceptions) = load_configuration(args.dirname)
 
     #print "config_path = ", config_path
     #print "find_path = ", find_path
@@ -91,7 +100,7 @@ def create_user_files(args):
     (config_path, 
      find_path,
      user_exceptions,
-     path_exceptions) = initialize_files(args.dirname)
+     path_exceptions) = load_configuration(args.dirname)
 
 
     files_to_delete_path  = os.path.join(config_path, FILES_TO_DELETE)
@@ -291,7 +300,7 @@ def notify_users(args):
     (config_path, 
      find_path,
      user_exceptions,
-     path_exceptions) = initialize_files(args.dirname)
+     path_exceptions) = load_configuration(args.dirname)
 
     file_counts_list = []
 
@@ -410,16 +419,17 @@ def user_usage_msg(user, deletion_datestr, user_command):
 
 
 def remove_files(args):
-    (config_path, 
-     find_path,
-     user_exceptions,
-     path_exceptions) = initialize_files(args.dirname)
     """Remove files under 'args.dirname' that have expired and
     have no user or path exceptions.
     """
+    (config_path, 
+     find_path,
+     user_exceptions,
+     path_exceptions) = load_configuration(args.dirname)
     pass
 
-def initialize_files(dir_name):
+
+def init_files(args):
     """Initialize files and directories under 'dir_name'
 
     Creates required subdirectories and empty config files if they do not 
@@ -429,6 +439,8 @@ def initialize_files(dir_name):
     Arguments:
         dir_name: the directory name we are creating configuration files under.
     """
+
+    dir_name = args.dirname
 
     config_path = ''
     user_exceptions = []
@@ -451,7 +463,10 @@ def initialize_files(dir_name):
         os.mkdir(config_path)
 
     config_file_path = os.path.join(config_path, CONFIG_FILE)
-    if not os.path.exists(config_file_path):
+    if os.path.exists(config_file_path):
+        print "%s already exists " % config_file_path
+        sys.exit(0)
+    else:
         print "creating ", config_file_path
         with open(os.path.join(config_path, CONFIG_FILE), 'w') as f:
             f.write(
@@ -507,11 +522,34 @@ user =
 """
            )
 
+def load_configuration(dir_name):
+    """load configuration associated with specified diectory
+    """
+    config_path = ''
+    user_exceptions = []
+    path_exceptions = []
+
+    # get full path 
+    dir_path = os.path.abspath(dir_name)
+    if not os.path.exists(dir_path):
+        print "path %s does not exist" % dir_path
+        sys.exit(1)
+
+    if os.path.islink(dir_path):
+        print "path %s is symlink" % dir_path
+        sys.exit(1)
+
+    config_path = os.path.join(dir_path, CONFIG_DIR_NAME)
+    config_file_path = os.path.join(config_path, CONFIG_FILE)
+    if not os.path.exists(config_file_path):
+        print "no configuration found for %s. Please run 'init' first." % dir_path
+        sys.exit(1)
+
     # load configuration
     parser = SafeConfigParser()
     parser.read(config_file_path)
   
-    # TBD check configuration needed - sanity checks.
+    # TBD  -  configuration checks needed - sanity checks.
     Config.last_access_days = int(parser.get(
                                        'messages', 'last_access_days'))
     Config.notify_days = int(parser.get('messages', 'notify_days'))
@@ -551,7 +589,7 @@ def list_files(args):
     (config_path, 
      find_path,
      user_exceptions,
-     path_exceptions) = initialize_files(args.dirname)
+     path_exceptions) = load_configuration(args.dirname)
 
     #print "config_path = ", config_path
     #print "find_path = ", find_path
@@ -643,6 +681,12 @@ def main():
 
         list_parser.add_argument(
             '--user', help='specify user', action='store')
+
+        init_parser = subparsers.add_parser('init', help='inialize files')
+        init_parser.add_argument(
+                'dirname', action='store', help='Directory ')
+        init_parser.set_defaults(func=init_files)
+    
 
         find_parser = subparsers.add_parser('find', help='find files')
         find_parser.add_argument(

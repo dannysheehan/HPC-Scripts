@@ -29,25 +29,15 @@ MAX_SYSTEM_UID       = 499
 FIND_DEPTH           = 2 
 
 
+
 class Config:
-  last_access_days     = 3
-  notify_days          = 7
+  last_access_days     = 60
+  notify_days          = 14
   admin_email          = 'admin'
   from_email           = 'admin@widgets.com'
   from_name            = 'Support'
   user_msg_template    = ''
   
-
-def find_files(args):
-    """ find all files that have not been accessed in 
-    Config.last_access_days days
-    """
-    (config_path, 
-     find_path,
-     user_exceptions,
-     path_exceptions) = load_configuration(args.dirname)
-
-    
 
 def find_files(args):
     """ find all files that have not been accessed in 
@@ -304,10 +294,15 @@ def notify_users(args):
 
     file_counts_list = []
 
+
+    files_to_delete_path  = os.path.join(config_path, FILES_TO_DELETE)
+    if not os.path.exists(files_to_delete_path):
+        sys.stderr.write('ERROR: You must run find first.\n')
+        sys.exit(1)
+
     user_cache_path = os.path.join(config_path, CACHE_DIR_NAME)
     assert os.path.exists(user_cache_path)
 
-    files_to_delete_path = os.path.join(config_path, FILES_TO_DELETE)
     deletion_date = calculate_deletion_date(files_to_delete_path)
     deletion_datestr =  deletion_date.strftime('%a %d %B %Y')
 
@@ -363,7 +358,8 @@ def notify_users(args):
             # only notify real users.
             if user[1] == 'REAL':
                 user_command = __file__ + ' list ' + find_path
-                msg = user_usage_msg(user, deletion_datestr, user_command)
+                msg = user_usage_msg(
+                      user, deletion_datestr, user_command, find_path)
                 email_msg(user[0], msg)
 
 
@@ -405,7 +401,7 @@ Real Users
     return msg
 
 
-def user_usage_msg(user, deletion_datestr, user_command):
+def user_usage_msg(user, deletion_datestr, user_command, dir_path):
     """Generate message specific for user.
     """
 
@@ -415,6 +411,7 @@ def user_usage_msg(user, deletion_datestr, user_command):
     return Config.user_msg_template.format(
            USERNAME=user_gecos,
            DELETE_DATE=deletion_datestr,
+           DIR_PATH=dir_path,
            COMMAND=user_command)
 
 
@@ -427,6 +424,44 @@ def remove_files(args):
      user_exceptions,
      path_exceptions) = load_configuration(args.dirname)
     pass
+
+def output_crontab(dir_path):
+    """Output crontab options based on file deletion list creation date
+    and the configuration settings for delete interval.
+    """
+
+    config_path = os.path.join(dir_path, CONFIG_DIR_NAME)
+    files_to_delete_path  = os.path.join(config_path, FILES_TO_DELETE)
+
+    find_date =  datetime.datetime.fromtimestamp(
+            os.path.getmtime(files_to_delete_path))
+    find_day =  find_date.strftime('%d')
+
+    # send warning one day after all files are found.
+    send_warning_day = int(find_day) + 1
+
+    # cater for shortest month
+    if send_warning_day > 28:
+       send_warning_day = 1
+
+    deletion_date = calculate_deletion_date(files_to_delete_path)
+    deletion_day =  int(deletion_date.strftime('%d'))
+    deletion_datestr =  deletion_date.strftime('%a %d %B %Y')
+    print("deletion is scheduled for {0}".format(deletion_datestr))
+
+    # cater for shortest month
+    if deletion_day > 28:
+        deletion_day = 1
+
+    cron_min = 11 
+    cron_hour = 2
+    print('\nexample crontab entries based on configuration & last find run\n')
+    print('{0} {1} {2} * * {3} --find {4}'.format(
+              cron_min, cron_hour, find_day, __file__, dir_path))
+    print('{0} {1} {2} * * {3} --notify {4}'.format(
+              cron_min, cron_hour, send_warning_day, __file__, dir_path))
+    print('{0} {1} {2} * * {3} --delete {4}'.format(
+              cron_min, cron_hour, deletion_day, __file__, dir_path))
 
 
 def init_files(args):
@@ -464,7 +499,12 @@ def init_files(args):
 
     config_file_path = os.path.join(config_path, CONFIG_FILE)
     if os.path.exists(config_file_path):
+        (config_path, 
+         find_path,
+         user_exceptions,
+         path_exceptions) = load_configuration(dir_name)
         print "%s already exists " % config_file_path
+        output_crontab(dir_path)
         sys.exit(0)
     else:
         print "creating ", config_file_path
@@ -492,6 +532,7 @@ user =
   .This is system generated message.
   . 
   .You have files that have not been accessed for over %(last_access_days)s days
+  .under {DIR_PATH}.
   . 
   .These files will be deleted on {DELETE_DATE}.
   .
@@ -512,7 +553,7 @@ user =
   .the list of files that have been excepted by entering the
   .following command on a login node.
   .  
-  .  {COMMAND} --exceptions 
+  .  {COMMAND}  --exceptions 
   . 
   .    And in this case, no option should now return an empty list.
   . 
@@ -553,6 +594,14 @@ def load_configuration(dir_name):
     Config.last_access_days = int(parser.get(
                                        'messages', 'last_access_days'))
     Config.notify_days = int(parser.get('messages', 'notify_days'))
+
+    # Give users at least 7 days notice for deletion but no more than 28.
+    # also makes for easier contab configuration.
+    if Config.notify_days > 28 or Config.notify_days < 7:
+        sys.stderr.write(
+            'CONFIG_ERROR: notify_days needs to be <= 28 days and >= 7 days')
+        sys.exit(1)
+
     Config.from_email = parser.get('messages', 'from_email')
     Config.from_name = parser.get('messages', 'from_name')
     Config.user_msg_template = parser.get('messages', 'user')
@@ -685,6 +734,8 @@ def main():
         init_parser = subparsers.add_parser('init', help='inialize files')
         init_parser.add_argument(
                 'dirname', action='store', help='Directory ')
+        init_parser.add_argument(
+                '--check', help='check mode', action="store_true")
         init_parser.set_defaults(func=init_files)
     
 

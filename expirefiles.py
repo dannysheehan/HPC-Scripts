@@ -1,6 +1,92 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+""" This script cleans up (removes) user files that have not been accessed for
+    a configurable number of days.  It also has the option of emailing
+    users prior to deletion that their files will be deleted and provides a
+    command line option that allows these users to list their pending files for
+    deletion for review.
+
+    Users also have the option to request exceptions.
+    The command line tool can also list files that have exceptions.
+
+    Exceptions can take the form of user exceptions or path exceptions.
+    In both cases regular expressions are *not* supported for simplicity.
+
+    - *User exceptions* exempt all files for the specified user.
+    - *Path exceptions* exempt all paths containing the path snipit.
+
+    All user messages and exceptions are configurable and contained in a .ini
+    file under _.expirefiles/config.ini_  in the filesystem that is being
+    *cleaned up*.
+
+    Examples
+    --------
+
+    Create the .expirefiles config files and associated structure under /scratch
+    ~~~
+    $ sudo expirefiles.py init /scratch
+    ~~~
+
+    Find all files under /scratch that are candidates for deletion
+    ~~~
+    $ sudo expirefiles.py find /scratch
+    ~~~
+
+    Notify all users of the pending deletions
+    ~~~
+    $ sudo expirefiles.py notify /scratch
+    ~~~
+
+    A user (in this case userx) lists all files they own scheduled for deletion.
+    ~~~
+    userx$ expirefiles.py list /scratch
+    ~~~
+
+    A user (userx) lists all files they own that are excepted for deletion
+    ~~~
+    userx$ expirefiles.py list --exception /scratch
+    ~~~
+
+    Delete all files under /scratch that are candidates for deletion.
+    ~~~
+    $ sudo expirefiles.py delete /scratch
+    ~~~
+
+    config.ini example
+    -------------------
+    - this is the default config.ini file generated when the init option is run.
+    ~~~
+    [DEFAULT]
+    last_access_days  = 60
+    notify_days       = 14
+    mail_server       = localhost
+    admin_email       = admin
+    from_email        = admin@widgets.com
+    from_name         = Support
+
+    [exceptions]
+    user =
+       root
+    path =
+       /no-delete/
+       /.
+
+    [messages]
+    user =
+      Hi {USERNAME},
+      .
+      This is system generated message.
+      ....
+      ...
+    ~~~
+
+"""
+__author__ = 'Danny Sheehan'
+__license__ = "GPL"
+__version__ = "1.0.1"
+#==============================================================================
+
 import sys
 import os
 import re
@@ -11,6 +97,7 @@ import datetime
 import shutil
 import smtplib
 import pwd
+import time
 
 from email.mime.text import MIMEText
 from ConfigParser import SafeConfigParser
@@ -22,8 +109,16 @@ CACHE_DIR_NAME       = 'USER_FILE_CACHE'
 FILES_TO_DELETE      = 'files_to_delete.raw'
 
 FIND_COMMAND         = '/usr/bin/find' 
+
 LINE_BUFFER          = 1024
+
+# accounts are considered as system accounts below this UID on most
+# UNIX based systems.
 MAX_SYSTEM_UID       = 499
+
+# time to sleep between sending individual emails to prevent
+# any mail relay from blacklisting us.
+MAIL_DELAY_SECS      = 10 
   
 # for testing
 FIND_DEPTH           = 2 
@@ -34,6 +129,7 @@ class Config:
   last_access_days     = 60
   notify_days          = 14
   admin_email          = 'admin'
+  mail_server          = 'localhost'
   from_email           = 'admin@widgets.com'
   from_name            = 'Support'
   user_msg_template    = ''
@@ -68,8 +164,8 @@ def find_files(args):
             os.remove(backup_file_path)
         os.rename(files_to_delete_path, backup_file_path)
 
+    # '-maxdepth', '2', 
     cmd_args = [FIND_COMMAND, find_path,  
-                '-maxdepth', '2', 
                 '-atime', '+' + str(Config.last_access_days), 
                 '-type', 'f', 
                 '-fprint0', files_to_delete_path]
@@ -353,20 +449,43 @@ def notify_users(args):
         print "-- CHECKING --"
         print admin_msg
     else:
-        email_msg(Config.admin_email, admin_msg)
+        subject = "{0} files cleanup scheduled for {1}".format(
+                args.dirname,  deletion_datestr)
+            
+        email_msg(Config.admin_email, subject, admin_msg)
         for user in file_counts_list:
             # only notify real users.
             if user[1] == 'REAL':
+                time.sleep(MAIL_DELAY_SECS)
                 user_command = __file__ + ' list ' + find_path
+
+                subject = \
+                    "IMPORTANT Your {0} files cleanup scheduled for {1}".format(
+                            args.dirname,  deletion_datestr)
+
                 msg = user_usage_msg(
                       user, deletion_datestr, user_command, find_path)
-                email_msg(user[0], msg)
+                email_msg(user[0], subject, msg)
 
 
-def email_msg(user, message):
-    """ Mail user a message.
+def email_msg(user, subject, message):
+    """ Mail user a message with given subject.
     """
     print "email_msg", user, message
+
+    msg = MIMEText(message)
+
+    msg['To'] = user
+    msg['From'] = Config.from_email
+    msg['subject'] = subject
+    server = smtplib.SMTP(Config.mail_server)
+    try:
+        server.sendmail(
+                Config.from_email,
+                [user],
+                msg.as_string())
+    finally:
+        server.quit()
 
 
 def overall_usage_msg(file_counts_list, deletion_datestr):
@@ -425,42 +544,54 @@ def remove_files(args):
      path_exceptions) = load_configuration(args.dirname)
     pass
 
+
 def output_crontab(dir_path):
     """Output crontab options based on file deletion list creation date
     and the configuration settings for delete interval.
+    If there is no file deletion list then just pick the first day of the
+    month for the file deletion list creation date.
     """
 
     config_path = os.path.join(dir_path, CONFIG_DIR_NAME)
     files_to_delete_path  = os.path.join(config_path, FILES_TO_DELETE)
 
-    find_date =  datetime.datetime.fromtimestamp(
+    # if find has not been run, then just pick first day of month to
+    # run cronjobs.
+    if not os.path.exists(files_to_delete_path):
+        find_day = 1
+        deletion_day = find_day + Config.notify_days
+    else:
+        # Calculate deletion date based on timestame of file delete list.
+        find_date =  datetime.datetime.fromtimestamp(
             os.path.getmtime(files_to_delete_path))
-    find_day =  find_date.strftime('%d')
+        find_day =  find_date.strftime('%d')
 
-    # send warning one day after all files are found.
+        deletion_date = calculate_deletion_date(files_to_delete_path)
+        deletion_datestr =  deletion_date.strftime('%a %d %B %Y')
+        deletion_day =  int(deletion_date.strftime('%d'))
+
+        print("deletion should be scheduled for {0}".format(deletion_datestr))
+
+    # send warning one day after files to delete list is generated.
     send_warning_day = int(find_day) + 1
 
     # cater for shortest month
     if send_warning_day > 28:
        send_warning_day = 1
 
-    deletion_date = calculate_deletion_date(files_to_delete_path)
-    deletion_day =  int(deletion_date.strftime('%d'))
-    deletion_datestr =  deletion_date.strftime('%a %d %B %Y')
-    print("deletion is scheduled for {0}".format(deletion_datestr))
-
-    # cater for shortest month
     if deletion_day > 28:
         deletion_day = 1
 
+    # arbitrary cron min and hour values.
     cron_min = 11 
     cron_hour = 2
+
     print('\nexample crontab entries based on configuration & last find run\n')
-    print('{0} {1} {2} * * {3} --find {4}'.format(
+    print('{0} {1} {2} * * {3} find {4}'.format(
               cron_min, cron_hour, find_day, __file__, dir_path))
-    print('{0} {1} {2} * * {3} --notify {4}'.format(
+    print('{0} {1} {2} * * {3} notify {4}'.format(
               cron_min, cron_hour, send_warning_day, __file__, dir_path))
-    print('{0} {1} {2} * * {3} --delete {4}'.format(
+    print('{0} {1} {2} * * {3} delete {4}'.format(
               cron_min, cron_hour, deletion_day, __file__, dir_path))
 
 
@@ -514,6 +645,7 @@ def init_files(args):
 [DEFAULT]
 last_access_days  = 60
 notify_days       = 30 
+mail_server       = localhost
 admin_email       = admin
 from_email        = admin@widgets.com
 from_name         = Support
@@ -527,39 +659,39 @@ path =
 
 [messages]
 user =
-  .Hi {USERNAME},
+  Hi {USERNAME},
   . 
-  .This is system generated message.
+  This is system generated message.
   . 
-  .You have files that have not been accessed for over %(last_access_days)s days
-  .under {DIR_PATH}.
-  . 
-  .These files will be deleted on {DELETE_DATE}.
+  You have files that have not been accessed for over %(last_access_days)s days
+  under {DIR_PATH}.
   .
-  .For a list of your files that will be deleted type the following
-  .command on a login node.
+  These files will be deleted on {DELETE_DATE}.
+  . 
+  For a list of your files that will be deleted type the following
+  command on a login node.
   . 
   .   {COMMAND}
   .  
-  .If you would like to keep these files, you may request an exception
-  .from the scheduled deletion by writing to %(from_email)s.
+  If you would like to keep these files, you may request an exception
+  from the scheduled deletion by writing to %(from_email)s.
   . 
-  .Please note that your exception will *ONLY* be effective for the
-  .currently scheduled deletion and you may *NOT* request an exception
-  .if you have already had one in place for the previous two deletion
-  .cycles.
+  Please note that your exception will *ONLY* be effective for the
+  currently scheduled deletion and you may *NOT* request an exception
+  if you have already had one in place for the previous two deletion
+  cycles.
   . 
-  .*If* you have received confirmation of your exception, you may see
-  .the list of files that have been excepted by entering the
-  .following command on a login node.
+  *If* you have received confirmation of your exception, you may see
+  the list of files that have been excepted by entering the
+  following command on a login node.
   .  
   .  {COMMAND}  --exceptions 
   . 
   .    And in this case, no option should now return an empty list.
   . 
-  .  Regards
-  .  %(from_name)s 
-  .  %(from_email)s 
+  Regards
+  %(from_name)s 
+  %(from_email)s 
 """
            )
 
@@ -605,6 +737,7 @@ def load_configuration(dir_name):
     Config.from_email = parser.get('messages', 'from_email')
     Config.from_name = parser.get('messages', 'from_name')
     Config.user_msg_template = parser.get('messages', 'user')
+    Config.mail_server = parser.get('messages', 'mail_server')
 
     # load "user exceptions" 
     for e in parser.get('exceptions', 'user').split('\n'):
@@ -635,6 +768,10 @@ def load_configuration(dir_name):
 
 
 def list_files(args):
+    """ list the files sheduled for deletion or excepted from deletion
+    for all users or the specified user.
+    """
+
     (config_path, 
      find_path,
      user_exceptions,
@@ -662,7 +799,7 @@ def list_files(args):
         sys.exit(0)
 
     if args.check:
-        print('Scheduled deletion is scheduled to occurr on {0}'.
+        print('Scheduled deletion should occur around {0}'.
                 format(deletion_datestr))
         sys.exit(0)
         
@@ -744,10 +881,10 @@ def main():
                 'dirname', action='store', help='Directory ')
         find_parser.set_defaults(func=find_files)
     
-        create_parser = subparsers.add_parser(
-                'create', help='create user files')
-        create_parser.add_argument(
-                'dirname', action='store', help='Directory ')
+        #create_parser = subparsers.add_parser(
+        #        'create', help='create user files')
+        #create_parser.add_argument(
+        #        'dirname', action='store', help='Directory ')
     
         notify_parser = subparsers.add_parser(
                 'notify', help='notify users')

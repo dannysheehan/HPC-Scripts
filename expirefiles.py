@@ -73,7 +73,9 @@
        /.
 
     [messages]
-    user =
+    user_subject =
+       IMPORTANT Your {DIR_PATH} files not accessed for %(last_access_days)s days will be deleted on {DELETE_DATE}
+    user_message =
       Hi {USERNAME},
       .
       This is system generated message.
@@ -126,13 +128,14 @@ FIND_DEPTH           = 2
 
 
 class Config:
-  last_access_days     = 60
-  notify_days          = 14
-  admin_email          = 'admin'
-  mail_server          = 'localhost'
-  from_email           = 'admin@widgets.com'
-  from_name            = 'Support'
-  user_msg_template    = ''
+  last_access_days      = 60
+  notify_days           = 14
+  admin_email           = 'admin'
+  mail_server           = 'localhost'
+  from_email            = 'admin@widgets.com'
+  from_name             = 'Support'
+  user_subject_template = ''
+  user_message_template = ''
   
 
 def find_files(args):
@@ -202,6 +205,10 @@ def create_user_files(args):
     print "creating ", user_cache_path
     os.mkdir(user_cache_path)
 
+    path_prefix = ''
+    if args.prefix:
+        path_prefix =  args.prefix
+        print "path prefix =", path_prefix
 
     file_handles = {}
     try:
@@ -215,7 +222,10 @@ def create_user_files(args):
                 if userid not in file_handles:
                     file_handles[userid] = open(user_file_path, 'w')
 
-                file_handles[userid].write(file_name + '\0')
+                file_path = file_name
+                if path_prefix:
+                    file_path = path_prefix + file_name
+                file_handles[userid].write(file_path + '\0')
     finally:
         for file_handle in file_handles.values():
             file_handle.close()
@@ -443,7 +453,7 @@ def notify_users(args):
                 path_exceptions)
 
 
-    admin_msg = overall_usage_msg(file_counts_list, deletion_datestr)
+    admin_msg = overall_usage_message(file_counts_list, deletion_datestr)
     
     if args.check:
         print "-- CHECKING --"
@@ -463,9 +473,11 @@ def notify_users(args):
                     "IMPORTANT Your {0} files cleanup scheduled for {1}".format(
                             args.dirname,  deletion_datestr)
 
-                msg = user_usage_msg(
+                subject = user_usage_subject(deletion_datestr, find_path)
+
+                message = user_usage_message(
                       user, deletion_datestr, user_command, find_path)
-                email_msg(user[0], subject, msg)
+                email_msg(user[0], subject, message)
 
 
 def email_msg(user, subject, message):
@@ -473,6 +485,8 @@ def email_msg(user, subject, message):
     """
     print "email_msg", user, message
 
+    # REMOVE
+    user = 'uqdshee2'
     msg = MIMEText(message)
 
     msg['To'] = user
@@ -488,7 +502,7 @@ def email_msg(user, subject, message):
         server.quit()
 
 
-def overall_usage_msg(file_counts_list, deletion_datestr):
+def overall_usage_message(file_counts_list, deletion_datestr):
     """ Generate message for Administrators on usage counts.
     """
 
@@ -520,14 +534,24 @@ Real Users
     return msg
 
 
-def user_usage_msg(user, deletion_datestr, user_command, dir_path):
+def user_usage_subject(deletion_datestr, dir_path):
+    """Generate subject specific for user message
+       Example:  IMPORTANT Your {DIR_PATH} files not accessed for %(last_access_days)s days will be deleted on {DELETE_DATE}
+    """
+
+    return Config.user_subject_template.format(
+           DELETE_DATE=deletion_datestr,
+           DIR_PATH=dir_path)
+
+
+def user_usage_message(user, deletion_datestr, user_command, dir_path):
     """Generate message specific for user.
     """
 
     user_name = user[0]
     user_gecos = pwd.getpwnam(user_name).pw_gecos
     
-    return Config.user_msg_template.format(
+    return Config.user_message_template.format(
            USERNAME=user_gecos,
            DELETE_DATE=deletion_datestr,
            DIR_PATH=dir_path,
@@ -644,7 +668,7 @@ def init_files(args):
 """
 [DEFAULT]
 last_access_days  = 60
-notify_days       = 30 
+notify_days       = 14 
 mail_server       = localhost
 admin_email       = admin
 from_email        = admin@widgets.com
@@ -658,7 +682,10 @@ path =
    /.
 
 [messages]
-user =
+user_subject =
+  IMPORTANT Your {DIR_PATH} files not accessed for %(last_access_days)s days will be deleted on {DELETE_DATE}
+
+user_message =
   Hi {USERNAME},
   . 
   This is system generated message.
@@ -731,12 +758,13 @@ def load_configuration(dir_name):
     # also makes for easier contab configuration.
     if Config.notify_days > 28 or Config.notify_days < 7:
         sys.stderr.write(
-            'CONFIG_ERROR: notify_days needs to be <= 28 days and >= 7 days')
+            'CONFIG_ERROR: notify_days needs to be <= 28 days and >= 7 days\n')
         sys.exit(1)
 
     Config.from_email = parser.get('messages', 'from_email')
     Config.from_name = parser.get('messages', 'from_name')
-    Config.user_msg_template = parser.get('messages', 'user')
+    Config.user_message_template = parser.get('messages', 'user_message')
+    Config.user_subject_template = parser.get('messages', 'user_subject')
     Config.mail_server = parser.get('messages', 'mail_server')
 
     # load "user exceptions" 
@@ -879,6 +907,8 @@ def main():
         find_parser = subparsers.add_parser('find', help='find files')
         find_parser.add_argument(
                 'dirname', action='store', help='Directory ')
+        find_parser.add_argument(
+                '--prefix', help='path prefix', action="store")
         find_parser.set_defaults(func=find_files)
     
         #create_parser = subparsers.add_parser(
@@ -918,5 +948,5 @@ if __name__ == '__main__':
         raise e
     except Exception, e:
         print str(e)
-        traceback.print_exc()
+        # traceback.print_exc()
         sys.exit(1)

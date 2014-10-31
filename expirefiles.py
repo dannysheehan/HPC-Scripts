@@ -61,7 +61,7 @@
     last_access_days  = 60
     notify_days       = 14
     mail_server       = localhost
-    admin_email       = admin
+    admin_email       = root
     from_email        = admin@widgets.com
     from_name         = Support
 
@@ -130,7 +130,7 @@ FIND_DEPTH           = 2
 class Config:
   last_access_days      = 60
   notify_days           = 14
-  admin_email           = 'admin'
+  admin_email           = 'root'
   mail_server           = 'localhost'
   from_email            = 'admin@widgets.com'
   from_name             = 'Support'
@@ -483,10 +483,7 @@ def notify_users(args):
 def email_msg(user, subject, message):
     """ Mail user a message with given subject.
     """
-    print "email_msg", user, message
 
-    # REMOVE
-    user = 'uqdshee2'
     msg = MIMEText(message)
 
     msg['To'] = user
@@ -761,11 +758,14 @@ def load_configuration(dir_name):
             'CONFIG_ERROR: notify_days needs to be <= 28 days and >= 7 days\n')
         sys.exit(1)
 
+    Config.mail_server = parser.get('messages', 'mail_server')
+    Config.admin_email = parser.get('messages', 'admin_email')
+
     Config.from_email = parser.get('messages', 'from_email')
     Config.from_name = parser.get('messages', 'from_name')
+
     Config.user_message_template = parser.get('messages', 'user_message')
     Config.user_subject_template = parser.get('messages', 'user_subject')
-    Config.mail_server = parser.get('messages', 'mail_server')
 
     # load "user exceptions" 
     for e in parser.get('exceptions', 'user').split('\n'):

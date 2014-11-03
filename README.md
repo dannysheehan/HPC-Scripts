@@ -3,6 +3,29 @@ HPC-Scripts
 
 Scripts to help Unix Administrators and Users manage High Performance Computing (HPC) environments.
 
+## HPC Cleanup Scripts
+
+### Scratch Filesystem Cleanup (_expirfiles.py_)
+
+HPC systems have very large fast parallel filesystems where users 
+can generate and use literally terrabytes of data during computation.
+- "scratch" filesystems.
+Unfortunately, users to tend to leave files around in these filesystems
+rather than backing them up to long term storage such as HSM.
+Quotering can get around this issue, but can still results in people leaving
+uneeded files around and hogging space.
+Also, since "scratch" filesystems are typically not backed up, the practice of 
+leaving files in "scratch" filesystems is not safe.
+
+Given a file system _expirefiles_ will find all files that have not been
+accessed in a specified number of days. It has options to warn users
+of files which are about to be expired (removed) via email.
+
+Exceptions for usernames and also file paths are supported, where certain
+files can be exempted from a later deletion.
+
+For more details see [expirefiles](expirefiles.md).
+
 
 ## HPC Head Node Scripts
 

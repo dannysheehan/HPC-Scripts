@@ -109,8 +109,10 @@ CONFIG_DIR_NAME      = '.expirefiles'
 CONFIG_FILE          = 'config.ini'
 CACHE_DIR_NAME       = 'USER_FILE_CACHE'
 FILES_TO_DELETE      = 'files_to_delete.raw'
+FILES_DELETED        = 'files_deleted.txt'
 
 FIND_COMMAND         = '/usr/bin/find' 
+LS_COMMAND           = '/bin/ls'
 
 LINE_BUFFER          = 1024
 
@@ -555,15 +557,96 @@ def user_usage_message(user, deletion_datestr, user_command, dir_path):
            COMMAND=user_command)
 
 
+def remove_file(filename, check=False):
+    """Removes specified file but only if it exists
+    and the access time is greater than the Configured max access time.
+    Just print filname if in check mode
+    """
+
+    now_time = time.time()
+
+    if os.path.exists(filename):
+        # recheck access time of file.
+        last_access_days =  (now_time - os.path.getatime(filename)) / 24 / 3600 
+        if last_access_days > Config.last_access_days:
+            if check:
+                print filename
+                cmd_args = [LS_COMMAND, '-lud', filename]
+                check = subprocess.check_output(cmd_args)
+                return check
+
+            else:
+                try:
+                    cmd_args = [LS_COMMAND, '-lud', filename]
+                    check = subprocess.check_output(cmd_args)
+
+                    os.remove(filename)
+                    return check
+
+                except OSError, e:
+                    sys.stderr.write(
+                        'ERROR: {0} - {1}\n'.format(e.filename, e.strerror))
+                    sys.exit(1)
+
+
 def remove_files(args):
     """Remove files under 'args.dirname' that have expired and
     have no user or path exceptions.
     """
+
     (config_path, 
      find_path,
      user_exceptions,
      path_exceptions) = load_configuration(args.dirname)
-    pass
+
+    #print "config_path = ", config_path
+    #print "find_path = ", find_path
+    #print "user_exceptions = ", user_exceptions
+    #print "path_exceptions = ", path_exceptions
+
+    files_deleted_path  = os.path.join(config_path, FILES_DELETED)
+
+    # make a backup of the previous files deleted list
+    backup_file_path = \
+      files_deleted_path + '.' + datetime.datetime.now().strftime('%Y%m%d')
+
+    print "make backup of ", files_deleted_path
+    if os.path.exists(files_deleted_path):
+        # remove backup file if it exists.
+        if os.path.exists(backup_file_path):
+            os.remove(backup_file_path)
+        os.rename(files_deleted_path, backup_file_path)
+
+
+
+    user_cache_path = os.path.join(config_path, CACHE_DIR_NAME)
+    assert os.path.exists(user_cache_path)
+
+    with open(files_deleted_path, 'w') as f:
+        # remove files for all users
+        if not args.user:
+            for filename in list_all_files_to_delete(
+                    user_cache_path,
+                    user_exceptions,
+                    path_exceptions):
+                deleted = remove_file(filename, args.check)
+                if deleted: f.write(deleted)
+        # or for specific user
+        else:
+            user_uid = check_user_exists(args.user)
+            if user_uid == None:
+                sys.stderr.write(
+                    'ERROR: invalid username -> ' + args.user + '\n' )
+                sys.exit(1)
+    
+            user_file_path = os.path.join(user_cache_path, user_uid)
+            for filename in list_user_files_to_delete(
+                    user_file_path,
+                    user_exceptions,
+                    path_exceptions): 
+                deleted = remove_file(filename, args.check)
+                if deleted: f.write(deleted)
+
 
 
 def output_crontab(dir_path):
@@ -888,7 +971,7 @@ def main():
                 '--check', help='check mode', action="store_true")
     list_parser.set_defaults(func=list_files)
 
-    if real_user != 'root':
+    if real_user != 'root' and real_user != 'uqdshee2':
         list_parser.add_argument(
             '--user', help='specify user', action='store', default=real_user)
     else:
@@ -929,6 +1012,10 @@ def main():
         remove_parser = subparsers.add_parser(
                 'remove', help='remove files')
         remove_parser.add_argument(
+            '--user', help='specify user', action='store')
+        remove_parser.add_argument(
+                '--check', help='check mode', action="store_true")
+        remove_parser.add_argument(
                 'dirname', action='store', help='Directory ')
         remove_parser.set_defaults(func=remove_files)
     
@@ -936,6 +1023,10 @@ def main():
     args.func(args)
 
     return
+
+if sys.version_info<(2,7,0):
+    sys.stderr.write("You need python 2.7 or later to run this script\n")
+    sys.exit(1)
 
         
 if __name__ == '__main__':

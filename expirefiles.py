@@ -91,6 +91,7 @@ __version__ = "1.0.1"
 
 import sys
 import os
+import grp
 import re
 import subprocess
 import argparse
@@ -110,6 +111,8 @@ CONFIG_FILE          = 'config.ini'
 CACHE_DIR_NAME       = 'USER_FILE_CACHE'
 FILES_TO_DELETE      = 'files_to_delete.raw'
 FILES_DELETED        = 'files_deleted.txt'
+
+SUPPORT_GROUP        = 'support'
 
 FIND_COMMAND         = '/usr/bin/find' 
 LS_COMMAND           = '/bin/ls'
@@ -954,6 +957,21 @@ def list_files(args):
                     user_file_path, user_exceptions, path_exceptions):
                 print file
 
+def is_group_member(group_name):
+    """ Returns true if the current user is a member of group_name
+    """
+
+    try:
+        user_groups = os.getgroups()
+        guid = grp.getgrnam(group_name).gr_gid
+
+        print group_name, guid, user_groups
+        return guid in user_groups
+
+    except KeyError:
+        return False
+
+
 def main():
     #
     # The command options are different depending on if the user is
@@ -961,7 +979,7 @@ def main():
     #
     # http://pymotw.com/2/pwd/
     real_user = pwd.getpwuid(os.getuid()).pw_name
-
+    
     parser = argparse.ArgumentParser(description='Expires files!')
     subparsers = parser.add_subparsers(help='commands')
     list_parser = subparsers.add_parser(
@@ -974,7 +992,7 @@ def main():
                 '--check', help='check mode', action="store_true")
     list_parser.set_defaults(func=list_files)
 
-    if real_user != 'root' and real_user != 'uqdshee2':
+    if real_user != 'root' and not is_group_member(SUPPORT_GROUP):
         list_parser.add_argument(
             '--user', help='specify user', action='store', default=real_user)
     else:

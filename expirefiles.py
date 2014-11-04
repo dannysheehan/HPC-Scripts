@@ -111,6 +111,7 @@ CONFIG_FILE          = 'config.ini'
 CACHE_DIR_NAME       = 'USER_FILE_CACHE'
 FILES_TO_DELETE      = 'files_to_delete.raw'
 FILES_DELETED        = 'files_deleted.txt'
+FILES_DELETED_CHECK  = 'files_deleted.check'
 
 SUPPORT_GROUP        = 'support'
 
@@ -560,7 +561,7 @@ def user_usage_message(user, deletion_datestr, user_command, dir_path):
            COMMAND=user_command)
 
 
-def remove_file(filename, check=False):
+def remove_file(filename, check=False, strip_path=''):
     """Removes specified file but only if it exists
     and the access time is greater than the Configured max access time.
     Just print filname if in check mode
@@ -568,7 +569,12 @@ def remove_file(filename, check=False):
 
     now_time = time.time()
 
-    if os.path.exists(filename):
+    if strip_path and filename.startswith(strip_path):
+        filename = filename[len(strip_path):]
+
+    if not os.path.exists(filename):
+        return ''
+    else:
         # recheck access time of file.
         last_access_days =  (now_time - os.path.getatime(filename)) / 24 / 3600 
         if last_access_days > Config.last_access_days:
@@ -576,8 +582,7 @@ def remove_file(filename, check=False):
                 # print last access time listing of file to be deleted.
                 cmd_args = [LS_COMMAND, '-lud', filename]
                 check = subprocess.check_output(cmd_args)
-                print check
-                return ''
+                return check
 
             else:
                 try:
@@ -608,24 +613,34 @@ def remove_files(args):
     #print "user_exceptions = ", user_exceptions
     #print "path_exceptions = ", path_exceptions
 
-    files_deleted_path  = os.path.join(config_path, FILES_DELETED)
+    path_prefix = ''
+    if args.prefix:
+        path_prefix =  args.prefix
+        print "path prefix =", path_prefix
 
-    # make a backup of the previous files deleted list
-    backup_file_path = \
-      files_deleted_path + '.' + datetime.datetime.now().strftime('%Y%m%d')
 
-    print "make backup of ", files_deleted_path
-    if os.path.exists(files_deleted_path):
-        # remove backup file if it exists.
-        if os.path.exists(backup_file_path):
-            os.remove(backup_file_path)
-        os.rename(files_deleted_path, backup_file_path)
+    files_deleted_path  = os.path.join(config_path, FILES_DELETED_CHECK)
+    if not args.check:
+        files_deleted_path  = os.path.join(config_path, FILES_DELETED)
+
+        # make a backup of the previous files deleted list
+        backup_file_path = \
+          files_deleted_path + '.' + datetime.datetime.now().strftime('%Y%m%d')
+
+        print "make backup of ", files_deleted_path
+        if os.path.exists(files_deleted_path):
+            # remove backup file if it exists.
+            if os.path.exists(backup_file_path):
+                os.remove(backup_file_path)
+            os.rename(files_deleted_path, backup_file_path)
 
 
     user_cache_path = os.path.join(config_path, CACHE_DIR_NAME)
     assert os.path.exists(user_cache_path)
 
-    # remove files for all users. 
+    delete_count = 0
+
+    # remove files for all users if no user option specified.
     if not args.user:
 
         # keep an audit of deleted files.
@@ -634,11 +649,14 @@ def remove_files(args):
                     user_cache_path,
                     user_exceptions,
                     path_exceptions):
-                deleted = remove_file(filename, args.check)
+                deleted = remove_file(filename, args.check, path_prefix)
                 # keep audit of deleted file name and last access time of that file.
-                if deleted: f.write(deleted)
+                if deleted:
+                    delete_count += 1
+                    f.write(deleted)
 
     # or, for specific user (NOTE: no audit of deleted files is kept in this case).
+    # The audit is written to stdout.
     else:
         user_uid = check_user_exists(args.user)
         if user_uid == None:
@@ -651,8 +669,15 @@ def remove_files(args):
                 user_file_path,
                 user_exceptions,
                 path_exceptions): 
-            deleted = remove_file(filename, args.check)
+            deleted = remove_file(filename, args.check, path_prefix)
+            if deleted:
+                delete_count += 1
+                print deleted
 
+    if args.check:
+       print delete_count, "files will be deleted. See", files_deleted_path
+    else:
+       print delete_count, "files were deleted. See", files_deleted_path
 
 
 def output_crontab(dir_path):
@@ -964,8 +989,6 @@ def is_group_member(group_name):
     try:
         user_groups = os.getgroups()
         guid = grp.getgrnam(group_name).gr_gid
-
-        print group_name, guid, user_groups
         return guid in user_groups
 
     except KeyError:
@@ -1036,6 +1059,8 @@ def main():
             '--user', help='specify user', action='store')
         remove_parser.add_argument(
                 '--check', help='check mode', action="store_true")
+        remove_parser.add_argument(
+                '--prefix', help='path prefix', action="store")
         remove_parser.add_argument(
                 'dirname', action='store', help='Directory ')
         remove_parser.set_defaults(func=remove_files)

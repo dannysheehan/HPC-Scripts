@@ -675,9 +675,9 @@ def remove_files(args):
                 print deleted
 
     if args.check:
-       print delete_count, "files will be deleted. See", files_deleted_path
+        print('{0} files will be deleted. See {1}\n'.format(delete_count, files_deleted_path))
     else:
-       print delete_count, "files were deleted. See", files_deleted_path
+        print('{0} files were deleted. See {1}\n'.format(delete_count, files_deleted_path))
 
 
 def output_crontab(dir_path):

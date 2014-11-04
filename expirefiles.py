@@ -4,11 +4,11 @@
 """ This script cleans up (removes) user files that have not been accessed for
     a configurable number of days.  It also has the option of emailing
     users prior to deletion that their files will be deleted and provides a
-    command line option that allows these users to list their pending files for
-    deletion for review.
+    command line option that allows these users to review their pending files for
+    deletion.
 
-    Users also have the option to request exceptions.
-    The command line tool can also list files that have exceptions.
+    Users also have the option to request exceptions to be put in place.
+    The command line tool can also list all files that have exceptions.
 
     Exceptions can take the form of user exceptions or path exceptions.
     In both cases regular expressions are *not* supported for simplicity.
@@ -38,19 +38,19 @@
     $ sudo expirefiles.py notify /scratch
     ~~~
 
-    A user (in this case userx) lists all files they own scheduled for deletion.
+    A user (in this case userx) lists all files they own that are scheduled for deletion.
     ~~~
     userx$ expirefiles.py list /scratch
     ~~~
 
-    A user (userx) lists all files they own that are excepted for deletion
+    A user (userx) lists all files they own that are excepted from deletion
     ~~~
     userx$ expirefiles.py list --exception /scratch
     ~~~
 
-    Delete all files under /scratch that are candidates for deletion.
+    Remove all files under /scratch that are candidates for deletion.
     ~~~
-    $ sudo expirefiles.py delete /scratch
+    $ sudo expirefiles.py remove /scratch
     ~~~
 
     config.ini example
@@ -153,8 +153,6 @@ def find_files(args):
     #print "find_path = ", find_path
     #print "user_exceptions = ", user_exceptions
     #print "path_exceptions = ", path_exceptions
-
-
 
     files_to_delete_path  = os.path.join(config_path, FILES_TO_DELETE)
 
@@ -378,6 +376,7 @@ def check_user_exists(username):
 
     return user_uid
 
+
 def calculate_deletion_date(filepath):
     """ based on the date the find was last run returns the 
     deletion date
@@ -390,6 +389,7 @@ def calculate_deletion_date(filepath):
             os.path.getmtime(filepath)) + \
             datetime.timedelta(days=Config.notify_days)
         return deletion_date
+
 
 def notify_users(args):
     """ Notify user/s that they have files that will be deleted.
@@ -570,10 +570,11 @@ def remove_file(filename, check=False):
         last_access_days =  (now_time - os.path.getatime(filename)) / 24 / 3600 
         if last_access_days > Config.last_access_days:
             if check:
-                print filename
+                # print last access time listing of file to be deleted.
                 cmd_args = [LS_COMMAND, '-lud', filename]
                 check = subprocess.check_output(cmd_args)
-                return check
+                print check
+                return ''
 
             else:
                 try:
@@ -618,34 +619,36 @@ def remove_files(args):
         os.rename(files_deleted_path, backup_file_path)
 
 
-
     user_cache_path = os.path.join(config_path, CACHE_DIR_NAME)
     assert os.path.exists(user_cache_path)
 
-    with open(files_deleted_path, 'w') as f:
-        # remove files for all users
-        if not args.user:
+    # remove files for all users. 
+    if not args.user:
+
+        # keep an audit of deleted files.
+        with open(files_deleted_path, 'w') as f:
             for filename in list_all_files_to_delete(
                     user_cache_path,
                     user_exceptions,
                     path_exceptions):
                 deleted = remove_file(filename, args.check)
+                # keep audit of deleted file name and last access time of that file.
                 if deleted: f.write(deleted)
-        # or for specific user
-        else:
-            user_uid = check_user_exists(args.user)
-            if user_uid == None:
-                sys.stderr.write(
-                    'ERROR: invalid username -> ' + args.user + '\n' )
-                sys.exit(1)
-    
-            user_file_path = os.path.join(user_cache_path, user_uid)
-            for filename in list_user_files_to_delete(
-                    user_file_path,
-                    user_exceptions,
-                    path_exceptions): 
-                deleted = remove_file(filename, args.check)
-                if deleted: f.write(deleted)
+
+    # or, for specific user (NOTE: no audit of deleted files is kept in this case).
+    else:
+        user_uid = check_user_exists(args.user)
+        if user_uid == None:
+            sys.stderr.write(
+                'ERROR: invalid username -> ' + args.user + '\n' )
+            sys.exit(1)
+
+        user_file_path = os.path.join(user_cache_path, user_uid)
+        for filename in list_user_files_to_delete(
+                user_file_path,
+                user_exceptions,
+                path_exceptions): 
+            deleted = remove_file(filename, args.check)
 
 
 
@@ -653,7 +656,7 @@ def output_crontab(dir_path):
     """Output crontab options based on file deletion list creation date
     and the configuration settings for delete interval.
     If there is no file deletion list then just pick the first day of the
-    month for the file deletion list creation date.
+    month for the file deletion list creation date (the "find").
     """
 
     config_path = os.path.join(dir_path, CONFIG_DIR_NAME)

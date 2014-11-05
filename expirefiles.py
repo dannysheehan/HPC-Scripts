@@ -4,11 +4,11 @@
 """ This script cleans up (removes) user files that have not been accessed for
     a configurable number of days.  It also has the option of emailing
     users prior to deletion that their files will be deleted and provides a
-    command line option that allows these users to review their pending files for
-    deletion.
+    command line option that allows these users to review their pending files 
+    for deletion.
 
     Users also have the option to request exceptions to be put in place.
-    The command line tool can also list all files that have exceptions.
+    The command line tool can then list all files that have exceptions.
 
     Exceptions can take the form of user exceptions or path exceptions.
     In both cases regular expressions are *not* supported for simplicity.
@@ -17,7 +17,7 @@
     - *Path exceptions* exempt all paths containing the path snipit.
 
     All user messages and exceptions are configurable and contained in a .ini
-    file under _.expirefiles/config.ini_  in the filesystem that is being
+    file under *.expirefiles/config.ini*  in the filesystem that is being
     *cleaned up*.
 
     Examples
@@ -28,17 +28,20 @@
     $ sudo expirefiles.py init /scratch
     ~~~
 
-    Find all files under /scratch that are candidates for deletion
+    Find all files under /scratch that have access greater than allowed.
+    This is the first phase of the script.
     ~~~
     $ sudo expirefiles.py find /scratch
     ~~~
 
     Notify all users of the pending deletions
+    This is the second phase of the script.
     ~~~
     $ sudo expirefiles.py notify /scratch
     ~~~
 
-    A user (in this case userx) lists all files they own that are scheduled for deletion.
+    A user (in this case userx) lists all files they own that are scheduled 
+    for deletion.
     ~~~
     userx$ expirefiles.py list /scratch
     ~~~
@@ -49,6 +52,7 @@
     ~~~
 
     Remove all files under /scratch that are candidates for deletion.
+    This is the third and final phase of the script.
     ~~~
     $ sudo expirefiles.py remove /scratch
     ~~~
@@ -56,6 +60,7 @@
     config.ini example
     -------------------
     - this is the default config.ini file generated when the init option is run.
+    - adminstrators can adjust the settings and messages sent to users.
     ~~~
     [DEFAULT]
     last_access_days  = 60
@@ -68,8 +73,11 @@
     [exceptions]
     user =
        root
+       admin
+
     path =
        /no-delete/
+       # don't delete dot files
        /.
 
     [messages]
@@ -83,10 +91,10 @@
       ...
     ~~~
 
+author:  Danny Sheehan
+license: GPL
+version: 1.0.1
 """
-__author__ = 'Danny Sheehan'
-__license__ = "GPL"
-__version__ = "1.0.1"
 #==============================================================================
 
 import sys
@@ -120,6 +128,13 @@ LS_COMMAND           = '/bin/ls'
 
 LINE_BUFFER          = 1024
 
+# user_file_counts record file positions
+UFC_USER_NAME    = 0
+UFC_USER_TYPE    = 1
+UFC_TOTAL_COUNT  = 2
+UFC_DELETE_COUNT = 3
+UFC_EXCEPT_COUNT = 4
+
 # accounts are considered as system accounts below this UID on most
 # UNIX based systems.
 MAX_SYSTEM_UID       = 499
@@ -132,7 +147,6 @@ MAIL_DELAY_SECS      = 10
 FIND_DEPTH           = 2 
 
 
-
 class Config:
   last_access_days      = 60
   notify_days           = 14
@@ -142,7 +156,8 @@ class Config:
   from_name             = 'Support'
   user_subject_template = ''
   user_message_template = ''
-  
+  test_email            = ''
+
 
 def find_files(args):
     """ find all files that have not been accessed in 
@@ -153,18 +168,12 @@ def find_files(args):
      user_exceptions,
      path_exceptions) = load_configuration(args.dirname)
 
-    #print "config_path = ", config_path
-    #print "find_path = ", find_path
-    #print "user_exceptions = ", user_exceptions
-    #print "path_exceptions = ", path_exceptions
-
     files_to_delete_path  = os.path.join(config_path, FILES_TO_DELETE)
 
     # make a backup of the previous list of files to delete.
     backup_file_path = \
       files_to_delete_path + '.' + datetime.datetime.now().strftime('%Y%m%d')
 
-    print "make backup of ", files_to_delete_path
     if os.path.exists(files_to_delete_path):
         # remove backup file if it exists.
         if os.path.exists(backup_file_path):
@@ -177,7 +186,6 @@ def find_files(args):
                 '-type', 'f', 
                 '-fprint0', files_to_delete_path]
 
-    print "Running ", cmd_args
     error_code = subprocess.call(cmd_args)
     if error_code:
         sys.stderr.write('ERROR: no files found\n')
@@ -195,7 +203,6 @@ def create_user_files(args):
      user_exceptions,
      path_exceptions) = load_configuration(args.dirname)
 
-
     files_to_delete_path  = os.path.join(config_path, FILES_TO_DELETE)
     if not os.path.exists(files_to_delete_path):
         sys.stderr.write('ERROR: You must run find first.\n')
@@ -204,15 +211,12 @@ def create_user_files(args):
     # remove old cache and create a new one.
     user_cache_path = os.path.join(config_path, CACHE_DIR_NAME)
     if os.path.exists(user_cache_path):
-        print "removing tree and contents ", user_cache_path
         shutil.rmtree(user_cache_path)
-    print "creating ", user_cache_path
     os.mkdir(user_cache_path)
 
     path_prefix = ''
     if args.prefix:
         path_prefix =  args.prefix
-        print "path prefix =", path_prefix
 
     file_handles = {}
     try:
@@ -239,6 +243,7 @@ def readlines(filename, bufsize=1024, line_terminator='\0'):
     """ Read terminated lines  from filename.
     Default is null terminated lines.
     """
+
     buf = ''
     with open(filename, 'r') as f:
         data = f.read(bufsize)
@@ -271,8 +276,6 @@ def list_all_files_to_delete(file_list_dir, user_exceptions, path_exceptions):
 def list_user_files_to_delete(file_list_path, user_exceptions, path_exceptions):
     """ Return a count of the number of files to delete based on exceptions.
     """
-    #print "list_user_files_to_delete", file_list_path
-
     # check for user exception
     useruid =  os.path.basename(file_list_path)
     if int(useruid) in user_exceptions:
@@ -309,8 +312,6 @@ def list_user_files_to_except(file_list_path, user_exceptions, path_exceptions):
     """ Return a count of the number of files excepted from deletion.
     """
 
-    #print "list_user_files_to_except", file_list_path
-
     # check for user exception
     useruid =  os.path.basename(file_list_path)
 
@@ -335,7 +336,6 @@ def append_user_file_counts(
     deletion_count = 0
     user_type = ''
 
-    # path exceptions
     user_name = os.path.basename(file_list_path)
 
     assert user_name.isdigit()
@@ -362,7 +362,6 @@ def append_user_file_counts(
             else:
                 deletion_count += 1
 
-    # print user_uid, total_count, deletion_count, exception_count
     assert total_count == exception_count + deletion_count
 
     file_counts_list.append(
@@ -436,7 +435,7 @@ def notify_users(args):
 
         user_file_path = os.path.join(user_cache_path, user_uid)
         if not os.path.exists(user_file_path):
-            print("User {0} has no files to delete".format(args.user))
+            print('User {0} has no files to delete\n'.format(args.user))
             sys.exit(0)
 
         append_user_file_counts(
@@ -462,16 +461,16 @@ def notify_users(args):
     admin_msg = overall_usage_message(file_counts_list, deletion_datestr)
     
     if args.check:
-        print "-- CHECKING --"
-        print admin_msg
+        print(admin_msg)
     else:
         subject = "{0} files cleanup scheduled for {1}".format(
                 args.dirname,  deletion_datestr)
             
         email_msg(Config.admin_email, subject, admin_msg)
         for user in file_counts_list:
-            # only notify real users.
-            if user[1] == 'REAL':
+            # only notify real users and if they have files that will be
+            # deleted.
+            if user[UFC_USER_TYPE] == 'REAL':
                 time.sleep(MAIL_DELAY_SECS)
                 user_command = __file__ + ' list ' + find_path
 
@@ -481,9 +480,12 @@ def notify_users(args):
 
                 subject = user_usage_subject(deletion_datestr, find_path)
 
-                message = user_usage_message(
-                      user, deletion_datestr, user_command, find_path)
-                email_msg(user[0], subject, message)
+                # only send an email if user has files that will be deleted
+                # after exceptions applied.
+                if user[UFC_DELETE_COUNT]: 
+                    message = user_usage_message(
+                            user, deletion_datestr, user_command, find_path)
+                    email_msg(user[UFC_USER_NAME], subject, message)
 
 
 def email_msg(user, subject, message):
@@ -491,6 +493,11 @@ def email_msg(user, subject, message):
     """
 
     msg = MIMEText(message)
+
+    # If in testing mode use TEST_EMAIL environment variable
+    if Config.test_email:
+        user = Config.test_email
+
 
     msg['To'] = user
     msg['From'] = Config.from_email
@@ -520,19 +527,34 @@ Real Users
 ----------
 """.format(Config.last_access_days, deletion_datestr)
 
-    real_users = [ u for u in file_counts_list if u[1] == 'REAL' ]
-    for user in sorted(real_users, key=lambda tup: tup[2], reverse=True):
-        msg += '{0} {1} {2} {3}\n'.format(user[0], user[2], user[3], user[4])
+    real_users = [ u for u in file_counts_list if u[UFC_USER_TYPE] == 'REAL' ]
+    for user in sorted(
+            real_users, key=lambda tup: tup[UFC_TOTAL_COUNT], reverse=True):
+        msg += '{0} {1} {2} {3}\n'.format(
+                user[UFC_USER_NAME],
+                user[UFC_TOTAL_COUNT],
+                user[UFC_DELETE_COUNT],
+                user[UFC_EXCEPT_COUNT])
 
     msg += '\nSystem Users\n------------\n'
-    system_users = [ u for u in file_counts_list if u[1] == 'SYSTEM' ]
-    for user in sorted(system_users, key=lambda tup: tup[2], reverse=True):
-        msg += '{0} {1} {2} {3}\n'.format(user[0], user[2], user[3], user[4])
+    system_users = [ u for u in file_counts_list if u[UFC_USER_TYPE] == 'SYSTEM' ]
+    for user in sorted(
+            system_users, key=lambda tup: tup[UFC_TOTAL_COUNT], reverse=True):
+        msg += '{0} {1} {2} {3}\n'.format(
+                user[UFC_USER_NAME],
+                user[UFC_TOTAL_COUNT],
+                user[UFC_DELETE_COUNT],
+                user[UFC_EXCEPT_COUNT])
 
     msg +=  "\nDeparted Users\n--------------\n"
-    departed_users = [ u for u in file_counts_list if u[1] == 'DEPARTED' ]
-    for user in sorted(departed_users, key=lambda tup: tup[2], reverse=True):
-        msg += '{0} {1} {2} {3}\n'.format(user[0], user[2], user[3], user[4])
+    departed_users = [ u for u in file_counts_list if u[UFC_USER_TYPE] == 'DEPARTED' ]
+    for user in sorted(
+            departed_users, key=lambda tup: tup[UFC_TOTAL_COUNT], reverse=True):
+        msg += '{0} {1} {2} {3}\n'.format(
+                user[UFC_USER_NAME],
+                user[UFC_TOTAL_COUNT],
+                user[UFC_DELETE_COUNT],
+                user[UFC_EXCEPT_COUNT])
 
     return msg
 
@@ -608,15 +630,9 @@ def remove_files(args):
      user_exceptions,
      path_exceptions) = load_configuration(args.dirname)
 
-    #print "config_path = ", config_path
-    #print "find_path = ", find_path
-    #print "user_exceptions = ", user_exceptions
-    #print "path_exceptions = ", path_exceptions
-
     path_prefix = ''
     if args.prefix:
         path_prefix =  args.prefix
-        print "path prefix =", path_prefix
 
 
     files_deleted_path  = os.path.join(config_path, FILES_DELETED_CHECK)
@@ -627,7 +643,6 @@ def remove_files(args):
         backup_file_path = \
           files_deleted_path + '.' + datetime.datetime.now().strftime('%Y%m%d')
 
-        print "make backup of ", files_deleted_path
         if os.path.exists(files_deleted_path):
             # remove backup file if it exists.
             if os.path.exists(backup_file_path):
@@ -672,7 +687,7 @@ def remove_files(args):
             deleted = remove_file(filename, args.check, path_prefix)
             if deleted:
                 delete_count += 1
-                print deleted
+                print(deleted)
 
     if args.check:
         print('{0} files will be deleted. See {1}\n'.format(delete_count, files_deleted_path))
@@ -750,17 +765,18 @@ def init_files(args):
     # get full path 
     dir_path = os.path.abspath(dir_name)
     if not os.path.exists(dir_path):
-        print "path %s does not exist" % dir_path
+        sys.stderr.write(
+            'path {0} does not exist\n'.format(dir_path))
         sys.exit(1)
 
     if os.path.islink(dir_path):
-        print "path %s is symlink" % dir_path
+        sys.stderr.write(
+            'path {0} is symlink\n'.format(dir_path))
         sys.exit(1)
 
     # create expected paths and files if they don't already exist.
     config_path = os.path.join(dir_path, CONFIG_DIR_NAME)
     if not os.path.exists(config_path):
-        print "creating ", config_path
         os.mkdir(config_path)
 
     config_file_path = os.path.join(config_path, CONFIG_FILE)
@@ -769,11 +785,10 @@ def init_files(args):
          find_path,
          user_exceptions,
          path_exceptions) = load_configuration(dir_name)
-        print "%s already exists " % config_file_path
+        print('{0} already exists\n'.format(config_file_path))
         output_crontab(dir_path)
         sys.exit(0)
     else:
-        print "creating ", config_file_path
         with open(os.path.join(config_path, CONFIG_FILE), 'w') as f:
             f.write(
 """
@@ -843,17 +858,21 @@ def load_configuration(dir_name):
     # get full path 
     dir_path = os.path.abspath(dir_name)
     if not os.path.exists(dir_path):
-        print "path %s does not exist" % dir_path
+        sys.stderr.write(
+            'path {0} does not exist\n'.format(dir_path))
         sys.exit(1)
 
     if os.path.islink(dir_path):
-        print "path %s is symlink" % dir_path
+        sys.stderr.write(
+            'path {0} is symlink\n'.format(dir_path))
         sys.exit(1)
 
     config_path = os.path.join(dir_path, CONFIG_DIR_NAME)
     config_file_path = os.path.join(config_path, CONFIG_FILE)
     if not os.path.exists(config_file_path):
-        print "no configuration found for %s. Please run 'init' first." % dir_path
+        sys.stderr.write(
+            'no configuration found for {0}. Please run "init" first.\n'.format(
+                dir_path))
         sys.exit(1)
 
     # load configuration
@@ -919,13 +938,6 @@ def list_files(args):
      user_exceptions,
      path_exceptions) = load_configuration(args.dirname)
 
-    #print "config_path = ", config_path
-    #print "find_path = ", find_path
-    #print "user_exceptions = ", user_exceptions
-    #print "path_exceptions = ", path_exceptions
-
-    #print "list_files(", args.user, args.exceptions
-
     user_cache_path = os.path.join(config_path, CACHE_DIR_NAME)
     assert os.path.exists(user_cache_path)
 
@@ -946,16 +958,15 @@ def list_files(args):
         sys.exit(0)
         
 
-
     if args.user == None:
         if args.exceptions:
             for file in list_all_files_to_except(
                     user_cache_path, user_exceptions, path_exceptions):
-                print file
+                print(file)
         else:
             for file in list_all_files_to_delete(
                     user_cache_path, user_exceptions, path_exceptions):
-                print file
+                print(file)
 
     else:
         user_uid = check_user_exists(args.user)
@@ -976,11 +987,11 @@ def list_files(args):
         if args.exceptions:
             for file in list_user_files_to_except(
                     user_file_path, user_exceptions, path_exceptions):
-                print file
+                print(file)
         else:
             for file in list_user_files_to_delete(
                     user_file_path, user_exceptions, path_exceptions):
-                print file
+                print(file)
 
 def is_group_member(group_name):
     """ Returns true if the current user is a member of group_name
@@ -996,6 +1007,10 @@ def is_group_member(group_name):
 
 
 def main():
+
+    # for testing, we don't want to be emailing all the users.
+    Config.test_email  = os.getenv('TEST_EMAIL', '')
+
     #
     # The command options are different depending on if the user is
     # root or not.
@@ -1070,7 +1085,7 @@ def main():
 
     return
 
-if sys.version_info<(2,7,0):
+if sys.version_info < (2,7,0):
     sys.stderr.write("You need python 2.7 or later to run this script\n")
     sys.exit(1)
 
@@ -1084,6 +1099,7 @@ if __name__ == '__main__':
     except SystemExit, e:
         raise e
     except Exception, e:
-        print str(e)
+        print(str(e))
         # traceback.print_exc()
         sys.exit(1)
+

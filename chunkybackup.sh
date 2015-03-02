@@ -186,7 +186,7 @@ dmput_chunk()
 
     # Check if user has enough quota for a chunk and wait a bit if not.
     HSMQUOTA=`quota -v -f $HSMDIR | tail -1 |awk '{print ($2-$1)}'`
-    while [ $HSMQUOTA -lt $(( $TLIMITK + $BUFFERK )) ]
+    while [ -n "$HSMQUOTA" ] && [ $HSMQUOTA -lt $(( $TLIMITK + $BUFFERK )) ]
     do
 
       echo "sleeping $QUOTA_WAIT minutes waiting for quota to increase to $TLIMITK kB from $HSMQUOTA kb"

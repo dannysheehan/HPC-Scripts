@@ -8,7 +8,7 @@
 # This script uses fpart and chunks directories based on a minimum CHUNKZIZE
 # specified in kBytes. 
 #
-#  Usage: $0 [-s <chunk_size_kbytes>] [-o <part_dir> ] <directory_to_partition> " >&2
+#  Usage: $0 [-s <chunk_size_kbytes>] [-f <chunk_file_count] [-o <part_dir> ] <directory_to_partition> " >&2
 #
 # -------------------------------------------------------------------------------
 export PATH=$PATH:/usr/local/bin:/sw/fpart/0.9.2/bin/
@@ -20,6 +20,7 @@ DU="dmdu"
 CHUNKSIZE=$((20*1024*1024))
 
 FPARTBYTES=$((2*$CHUNKSIZE*1024))
+FPARTFILES=1000
 
 
 # ---------
@@ -61,29 +62,29 @@ partition() {
   then
     grep -F "${dirname}" $ALLFILES | grep -F -v -f $EXCLFILE > $TMPFILE
   else
-    ## doing this results in 0 file chunks
     ##    fpart -s $FPARTBYTES -o $PARTITIONDIR/$chunk "$dirname"
     grep -F "${dirname}" $ALLFILES  > $TMPFILE
   fi
 
   # Let fpart do the hard work
-  fpart -s $FPARTBYTES -o $PARTITIONDIR/$chunk -i $TMPFILE 
+  fpart -s $FPARTBYTES -o $PARTITIONDIR/$chunk -f $FPARTFILES -i $TMPFILE 
 }
 
 # ---------
 usage() {
-  echo "Usage: $0 [-s <chunk_size_kbytes>] [-o <part_dir> ] <directory_to_partition> " >&2
+  echo "Usage: $0 [-s <chunk_size_kbytes>] [-f <chunk_file_count] [-o <part_dir> ] <directory_to_partition> " >&2
   exit 1
 }
 
 # --------------------------------------------------------------------
 PARTITIONDIR="dparts"
 
-while getopts "s:o:" option
+while getopts "s:o:f:" option
 do
   case $option in
     s)  CHUNKSIZE=$OPTARG ;;
     o)  PARTITIONDIR=$OPTARG ;;
+    f)  FPARTFILES=$OPTARG ;;
     *)  usage ;;
   esac
 done
@@ -118,7 +119,10 @@ ALLFILES="$PARTITIONDIR/.dpart-find.out"
 DMDUOUT="$PARTITIONDIR/.dpart-du.out"
 
 
-echo "Partitioning file names in $STARTDIR into chunks of size $CHUNKSIZE kbytes under directory $PARTITIONDIR"
+echo "Partitioning file names in $STARTDIR into chunks"
+echo "  under:      $PARTITIONDIR"
+echo "  maxsize:  $CHUNKSIZE kbytes (-s option)"
+echo "  maxfiles: $FPARTFILES (-f option)"
 
 
 if [ ! -d "$PARTITIONDIR" ] 

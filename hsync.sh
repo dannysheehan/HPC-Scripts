@@ -11,6 +11,7 @@
 #---------------------------------------------------------------------------
 
 WAITFORHSM=300
+CONTIMEOUT=7
 
 usage() {
   echo "Usage: $0 <start_dir> <destination> <file_list>" >&2
@@ -26,14 +27,16 @@ getmissingfiles() {
   echo ">determine what files are missing at '$DESTINATION'"
 
   if ! rsync -goDlt -ni -z --relative --recursive   \
-     --files-from=$CHUNK \
+     --contimeout=$CONTIMEOUT \
      $RSYNC_OPTS \
-     .  $DESTINATION | \
-    grep "^>f" | sed -e "s/^>f[\+]* //"  > $missing_files
+     --files-from=$CHUNK \
+     .  $DESTINATION >  $TMPFILE
   then
     echo "ERROR: initial rsync failed" >&2
     exit 2
   fi
+
+  grep "^[<>]f" $TMPFILE | sed -e "s/^[<>]f[\+]* //"  > $missing_files
 
   COUNT=$(cat $missing_files | wc -l)
   if [ $COUNT -eq 0 ]
@@ -51,18 +54,23 @@ getfilesofftape() {
   mssing_files="$1"
   waiting_files="$2"
 
+  waitcount=0
+
   echo ">getting OFL files from tape"
   UNMIGRATING=1
   while [ $UNMIGRATING -eq 1 ]
   do
     UNMIGRATING=0
+    waitcount=0
     while read -r f
     do
       DMSTATE=$(dmattr -a state "$f")
       if [ "$DMSTATE" = "OFL" -o $DMSTATE = "UNM" ]  
       then
         UNMIGRATING=1
+
         echo "$f" >> $waiting_files
+
         if [ "$DMSTATE" = "OFL" ]
         then
           echo -n 'o'
@@ -76,14 +84,16 @@ getfilesofftape() {
       else
           echo -n '.'
       fi
-    done < $missing_files
-    echo
 
+      waitcount=$((waitcount + 1))
+      if [ $(($waitcount % 80)) -eq 0 ]; then echo; fi
+    done < $missing_files
+
+    echo
     if [ $UNMIGRATING -eq 1 ]
     then
-      waitcount=$(cat $waiting_files | wc -l)
-      echo "  Waiting $WAITFORHSM seconds for $waitcount files still on tape."
-      echo "    See '$waiting_files' for a list of the files still Migrating"
+      echo "  Waiting $WAITFORHSM seconds for files still on tape."
+      echo "    See '$missing_files' for a list of the files still migrating"
 
       cp $waiting_files $missing_files
       cat /dev/null > $waiting_files
@@ -99,8 +109,9 @@ getfilesofftape() {
 copyfiles() {
   echo "syncing '$CHUNK'"
   if ! rsync -goDlt -z --relative --recursive   \
-     --files-from=$CHUNK \
+     --contimeout=$CONTIMEOUT \
      $RSYNC_OPTS \
+     --files-from=$CHUNK \
      .  $DESTINATION 
   then
     echo "ERROR: syncing $CHUNK" >&2
@@ -114,19 +125,31 @@ copyfiles() {
 # verify files in chunk were copied
 # ---------------------------------
 verifyfilescopied() {
+  mssing_files="$1"
+
   echo "verify files were copied"
-  rsync -goDlt -ni -z --relative --recursive   \
-     --files-from=$CHUNK \
+  if ! rsync -goDlt -ni -z --relative --recursive   \
+     --contimeout=$CONTIMEOUT \
      $RSYNC_OPTS \
-     .  $DESTINATION | \
-    grep "^>f" | sed -e "s/^>f[\+]* //"  > $WAITINGFILES
+     --files-from=$CHUNK \
+     .  $DESTINATION > $TMPFILE
+  then
+    echo "ERROR: initial rsync failed" >&2
+    exit 2
+  fi
+
+  grep "^[<>]f" $TMPFILE | sed -e "s/^[<>]f[\+]* //"  > $missing_files
+
   
-  COUNT=`cat $WAITINGFILES | wc -l`
+  COUNT=`cat $missing_files | wc -l`
   if [ $COUNT -eq 0 ]
   then
     echo "  files were copied"
     echo "  now offlining files in chunk"
     cat $CHUNK | dmput -r
+  else
+    echo "ERROR: There are still $COUNT missing files. See '$missing_files'" >&2
+    exit 3
   fi
 }
 
@@ -157,7 +180,7 @@ fi
 # chunk should have some files in it
 if [ $(cat $CHUNK | wc -l) -eq 0 ]
 then
-  echo "ERROR: no files in $CHUNK to sync" >&2
+  echo "ADVISORY: no files in $CHUNK to sync" >&2
   exit 0
 fi
 
@@ -175,12 +198,16 @@ DIRNAME=`dirname $CHUNK`
 BASENAME=`basename $CHUNK`
 
 
+TMPFILE="$DIRNAME/.TMP-$BASENAME"
 ERRFILE="$DIRNAME/.ER-$BASENAME"
 OUTFILE="$DIRNAME/.OU-$BASENAME"
 
 echo "Copying files in '$CHUNK'"
 echo "  relative to '$STARTDIR' "
 echo "  to '$DESTINATION'" 
+if [ -n "${RSYNC_OPTS}" ]; then echo "  options '$RSYNC_OPTS'"; fi
+if [ -n "${RSYNC_PASSWORD}" ]; then echo "  RSYNC_PASSWORD set"; fi
+
 echo
 echo "You can monitor progress in"
 echo "  '$DIRNAME/.OU-$BASENAME'"
@@ -201,5 +228,5 @@ getfilesofftape $MISSINGFILES $WAITINGFILES
 
 copyfiles
 
-verifyfilescopied
+verifyfilescopied $MISSINGFILES
 

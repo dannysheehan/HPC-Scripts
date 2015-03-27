@@ -37,6 +37,7 @@ getmissingfiles() {
   fi
 
   grep "^[<>]f" $TMPFILE | sed -e "s/^[<>]f[\+]* //"  > $missing_files
+  rm -f $TMPFILE
 
   COUNT=$(cat $missing_files | wc -l)
   if [ $COUNT -eq 0 ]
@@ -139,6 +140,7 @@ verifyfilescopied() {
   fi
 
   grep "^[<>]f" $TMPFILE | sed -e "s/^[<>]f[\+]* //"  > $missing_files
+  rm -f $TMPFILE
 
   
   COUNT=`cat $missing_files | wc -l`
@@ -187,9 +189,10 @@ fi
 # chunks should be relative to STARTDIR
 cd $STARTDIR
 TESTFILE=$(head -1 $CHUNK)
-if [ ! -e "$STARTDIR/$TESTFILE" ]
+if [ ! -f "$TESTFILE" -a ! -h "$TESTFILE" ]
 then
   echo "ERROR: files in $CHUNK don't exist relative to $STARTDIR" >&2
+  echo "ERROR: $TESTFILE" >&2
   exit 2
 fi
 

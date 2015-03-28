@@ -66,7 +66,12 @@ getfilesofftape() {
     while read -r f
     do
       DMSTATE=$(dmattr -a state "$f")
-      if [ "$DMSTATE" = "OFL" -o $DMSTATE = "UNM" ]  
+      if [ $? -ne 0 ]
+      then
+        echo "ERROR: problem getting '$f' state from HSM " >&2
+        # don't exit try again next time
+        echo -n 'e'
+      elif [ "$DMSTATE" = "OFL" -o $DMSTATE = "UNM" ]  
       then
         UNMIGRATING=1
 
@@ -74,10 +79,13 @@ getfilesofftape() {
 
         if [ "$DMSTATE" = "OFL" ]
         then
-          echo -n 'o'
           if ! dmget -q "$f"
           then
             echo "ERROR: problem getting '$f' from HSM" >&2
+            # don't exit try again next time
+            echo -n 'e'
+          else
+            echo -n 'o'
           fi
         else
           echo -n 'm'
@@ -116,7 +124,7 @@ copyfiles() {
      .  $DESTINATION 
   then
     echo "ERROR: syncing $CHUNK" >&2
-    exit 2
+    exit 3
   fi
   
   echo "  synced '$CHUNK'"
@@ -136,7 +144,7 @@ verifyfilescopied() {
      .  $DESTINATION > $TMPFILE
   then
     echo "ERROR: initial rsync failed" >&2
-    exit 2
+    exit 4
   fi
 
   grep "^[<>]f" $TMPFILE | sed -e "s/^[<>]f[\+]* //"  > $missing_files
@@ -151,7 +159,7 @@ verifyfilescopied() {
     cat $CHUNK | dmput -r
   else
     echo "ERROR: There are still $COUNT missing files. See '$missing_files'" >&2
-    exit 3
+    exit 5
   fi
 }
 
@@ -186,6 +194,8 @@ then
   exit 0
 fi
 
+
+
 # chunks should be relative to STARTDIR
 cd $STARTDIR
 TESTFILE=$(head -1 $CHUNK)
@@ -193,7 +203,7 @@ if [ ! -f "$TESTFILE" -a ! -h "$TESTFILE" ]
 then
   echo "ERROR: files in $CHUNK don't exist relative to $STARTDIR" >&2
   echo "ERROR: $TESTFILE" >&2
-  exit 2
+  exit 6
 fi
 
 
@@ -217,6 +227,13 @@ echo "  '$DIRNAME/.OU-$BASENAME'"
 echo "  '$DIRNAME/.ER-$BASENAME'"
 
 exec 2> ${ERRFILE} > ${OUTFILE}
+
+
+if grep -q -P  "[\x00-\x09\x0b-\x1f]"  $CHUNK
+then
+  echo "ERROR: (unsupported) filenames in $CHUNK contain control characters" >&2
+  exit 6
+fi 
 
 
 MISSINGFILES="$DIRNAME/.missing-$BASENAME"

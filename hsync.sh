@@ -12,12 +12,11 @@
 
 WAITFORHSM=300
 CONTIMEOUT=7
+NULLDELIMTER=0
+IGNOREHSM=0
 
-usage() {
-  echo "Usage: $0 <start_dir> <destination> <file_list>" >&2
-  echo "  <start_dir> and <file_list> need to have absolute paths" >&2
-  exit 1
-}
+DELIM_OPT=""
+CONTO_OPT="--contimeout=$CONTIMEOUT"
 
 # determine files missing
 # ------------------------
@@ -27,8 +26,9 @@ getmissingfiles() {
   echo ">determine what files are missing at '$DESTINATION'"
 
   if ! rsync -goDlt -ni -z --relative --recursive   \
-     --contimeout=$CONTIMEOUT \
      $RSYNC_OPTS \
+     $DELIM_OPT \
+     $CONTO_OPT \
      --files-from=$CHUNK \
      .  $DESTINATION >  $TMPFILE
   then
@@ -43,7 +43,10 @@ getmissingfiles() {
   if [ $COUNT -eq 0 ]
   then
     echo "  Files in $CHUNK are already synced to $DESTINATION"
-    echo "    To retrieve space please do a '$CHUNK | dmput -r'"
+    if [ $IGNOREHSM -ne 1 ]
+    then
+      echo "    To retrieve space please run '$CHUNK | dmput -r'"
+    fi
     exit 0
   fi
   echo "  $COUNT files need to by synced"
@@ -118,8 +121,9 @@ getfilesofftape() {
 copyfiles() {
   echo "syncing '$CHUNK'"
   if ! rsync -goDlt -z --relative --recursive   \
-     --contimeout=$CONTIMEOUT \
      $RSYNC_OPTS \
+     $DELIM_OPT \
+     $CONTO_OPT \
      --files-from=$CHUNK \
      .  $DESTINATION 
   then
@@ -138,8 +142,9 @@ verifyfilescopied() {
 
   echo "verify files were copied"
   if ! rsync -goDlt -ni -z --relative --recursive   \
-     --contimeout=$CONTIMEOUT \
      $RSYNC_OPTS \
+     $DELIM_OPT \
+     $CONTO_OPT \
      --files-from=$CHUNK \
      .  $DESTINATION > $TMPFILE
   then
@@ -155,16 +160,36 @@ verifyfilescopied() {
   if [ $COUNT -eq 0 ]
   then
     echo "  files were copied"
-    echo "  now offlining files in chunk"
-    cat $CHUNK | dmput -r
+    if [ $IGNOREHSM -ne 1 ]
+    then
+      echo "  now offlining files in chunk"
+      cat $CHUNK | dmput -r
+    fi
   else
     echo "ERROR: There are still $COUNT missing files. See '$missing_files'" >&2
     exit 5
   fi
 }
 
+usage() {
+  echo "Usage: $0 [-0] [-i] <start_dir> <destination> <file_list>" >&2
+  echo "  <start_dir> and <file_list> need to have absolute paths" >&2
+  exit 1
+}
+
+
 
 # ------------------------------------------------------------------
+while getopts "0i" option
+do
+  case $option in
+    0)  NULLDELIMTER=1 ;;
+    i)  IGNOREHSM=1 ;;
+    *)  usage ;;
+  esac
+done
+shift $((OPTIND-1))
+
 STARTDIR="$1"
 DESTINATION="$2"
 CHUNK="$3"
@@ -206,6 +231,12 @@ then
   exit 6
 fi
 
+# Don't use these options if NOT connecting to an rsync daemon
+if [ "${DESTINATION}" = "${DESTINATION/::/}" ]
+then
+  CONTO_OPT=""
+fi
+
 
 DIRNAME=`dirname $CHUNK`
 BASENAME=`basename $CHUNK`
@@ -229,10 +260,20 @@ echo "  '$DIRNAME/.ER-$BASENAME'"
 exec 2> ${ERRFILE} > ${OUTFILE}
 
 
-if grep -q -P  "[\x00-\x09\x0b-\x1f]"  $CHUNK
+if grep -q -P  "[\x00-\x09\x0b-\x1f\x7f-\xff]"  $CHUNK
 then
-  echo "ERROR: (unsupported) filenames in $CHUNK contain control characters" >&2
-  exit 6
+  if [ $NULLDELIMTER -eq 1 ]
+  then
+    DELIM_OPT='-0'
+  else
+    echo "ERROR: Filenames in $CHUNK contain non ascii characters" >&2
+    echo "convert the file to null terminated and use -0 option" >&2
+    exit 7
+  fi
+elif [ $NULLDELIMTER -eq 1 ]
+then
+  echo "ERROR: you used -0 option but $CHUNK is not null delimted." >&2
+  exit 8
 fi 
 
 
@@ -244,7 +285,10 @@ getmissingfiles $MISSINGFILES
 WAITINGFILES="$DIRNAME/.waiting-$BASENAME"
 cat /dev/null > $WAITINGFILES
 
-getfilesofftape $MISSINGFILES $WAITINGFILES
+if [ $IGNOREHSM -ne 1 ]
+then
+  getfilesofftape $MISSINGFILES $WAITINGFILES
+fi
 
 copyfiles
 

@@ -47,7 +47,11 @@ getmissingfiles() {
       echo "    To retrieve space please run '$CHUNK | dmput -r'"
     fi
     exit 0
+  elif [ -n "$DELIM_OPT" ]
+  then
+    cp $CHUNK $missing_files
   fi
+
   echo "  $COUNT files need to by synced"
 }
 
@@ -65,7 +69,7 @@ getfilesofftape() {
   do
     UNMIGRATING=0
     waitcount=0
-    while read -r f
+    while IFS= read -r f
     do
       DMSTATE=$(dmattr -a state "$f")
       if [ $? -ne 0 ]

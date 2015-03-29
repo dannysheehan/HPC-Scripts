@@ -32,7 +32,7 @@ findleaves() {
   while IFS= read -r -d '' line
   do
     dirname=`echo "$line" | awk  -F $'\t' 'BEGIN { RS = "\0" } {print $3}'`
-    if ! grep -FZaq "$dirname/" $DATFILE  > /dev/null
+    if ! grep -FZzaq "$dirname/" $DATFILE  > /dev/null
     then
       chunksize=`echo "$line" | awk  -F $'\t' 'BEGIN { RS = "\0" } {print $2}'`
       if [ $chunksize -gt $maxdirsize ]
@@ -59,15 +59,15 @@ partition() {
   #
   # exclude files from lower level already chunked directories in same tree
   #
-  awk -F $'\t' 'BEGIN { RS = "\0" } {printf "%s\n", $2}' $CHUNKED | \
-    grep -FZa "${dirname}" > $EXCLFILE
+  awk -F $'\t' 'BEGIN { RS = "\0" } {printf "%s\0", $2}' $CHUNKED | \
+    grep -Fza "${dirname}" | tr '\0' '\n' > $EXCLFILE
   if [ -s "${EXCLFILE}" ]
   then
-    grep -FZa "${dirname}" $ALLFILES | grep -FZa -v -f $EXCLFILE | \
-       tr '\0' '\n' > $TMPFILE
+    grep -Fza "${dirname}" $ALLFILES | \
+       tr '\0' '\n' | grep -Fv -f $EXCLFILE > $TMPFILE
   else
-    grep -FZa "${dirname}" $ALLFILES | \
-       tr '\0' '\n' > $TMPFILE
+    grep -Fza "${dirname}" $ALLFILES  | \
+       tr '\0' '\n'  > $TMPFILE
   fi
 
   # Let fpart do the hard work
@@ -129,6 +129,7 @@ echo "Partitioning file names in $STARTDIR into chunks"
 echo "  under:      $PARTITIONDIR"
 echo "  maxsize:  $CHUNKSIZE kbytes (-s option)"
 echo "  maxfiles: $FPARTFILES (-f option)"
+echo "  using:    $DU"
 
 
 if [ ! -d "$PARTITIONDIR" ] 
@@ -161,10 +162,10 @@ fi
 
 DMSTATE=""
 # check for HSM filesystem
-if which $DMDU 2> /dev/null
+if which $DMDU 2> /dev/null > /dev/null
 then
   DMSTATE=$(dmattr -a state . 2> /dev/null)
-  if [ $? -ne 0 -a -n "$DMSTATE" ]
+  if [ $? -eq 0 -a -n "$DMSTATE" ]
   then
     DU=$DMDU
   fi
@@ -218,7 +219,6 @@ then
   echo "  cd $STARTDIR;fpart -s $FPARTBYTES -o $PARTITIONDIR/$chunk ."
   exit 1
 fi
-
 
 cat /dev/null >  $CHUNKED
 

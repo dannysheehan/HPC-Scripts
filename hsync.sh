@@ -12,7 +12,6 @@
 
 WAITFORHSM=300
 CONTIMEOUT=7
-NULLDELIMTER=0
 IGNOREHSM=0
 
 DELIM_OPT=""
@@ -74,7 +73,7 @@ getfilesofftape() {
         echo "ERROR: problem getting '$f' state from HSM " >&2
         # don't exit try again next time
         echo -n 'e'
-      elif [ "$DMSTATE" = "OFL" -o $DMSTATE = "UNM" ]  
+      elif [ "$DMSTATE" = "OFL" -o "$DMSTATE" = "UNM" ]  
       then
         UNMIGRATING=1
 
@@ -180,10 +179,9 @@ usage() {
 
 
 # ------------------------------------------------------------------
-while getopts "0i" option
+while getopts "i" option
 do
   case $option in
-    0)  NULLDELIMTER=1 ;;
     i)  IGNOREHSM=1 ;;
     *)  usage ;;
   esac
@@ -245,6 +243,7 @@ BASENAME=`basename $CHUNK`
 TMPFILE="$DIRNAME/.TMP-$BASENAME"
 ERRFILE="$DIRNAME/.ER-$BASENAME"
 OUTFILE="$DIRNAME/.OU-$BASENAME"
+NULLFILE="$DIRNAME/.0-$BASENAME"
 
 echo "Copying files in '$CHUNK'"
 echo "  relative to '$STARTDIR' "
@@ -259,21 +258,13 @@ echo "  '$DIRNAME/.ER-$BASENAME'"
 
 exec 2> ${ERRFILE} > ${OUTFILE}
 
-
+# check for non-ascii and automatically convert to binary sync.
 if grep -q -P  "[\x00-\x09\x0b-\x1f\x7f-\xff]"  $CHUNK
 then
-  if [ $NULLDELIMTER -eq 1 ]
-  then
-    DELIM_OPT='-0'
-  else
-    echo "ERROR: Filenames in $CHUNK contain non ascii characters" >&2
-    echo "convert the file to null terminated and use -0 option" >&2
-    exit 7
-  fi
-elif [ $NULLDELIMTER -eq 1 ]
-then
-  echo "ERROR: you used -0 option but $CHUNK is not null delimted." >&2
-  exit 8
+ DELIM_OPT='-0'
+ tr '\n' '\0' < $CHUNK > $NULLFILE
+ CHUNK=$NULLFILE
+ echo "contains non-ascii file names"
 fi 
 
 

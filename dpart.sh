@@ -13,7 +13,9 @@
 # -------------------------------------------------------------------------------
 export PATH=$PATH:/usr/local/bin:/sw/fpart/0.9.2/bin/
 
-DU="dmdu"
+DU="du"
+DMDU="dmdu"
+SUGGESTSIZE=0
 
 
 # 20 GiByte default chunk size
@@ -27,12 +29,12 @@ FPARTFILES=1000
 findleaves() {
   maxdirsize=0
   maxdir=""
-  while read -r line
+  while IFS= read -r -d '' line
   do
-    dirname=`echo "$line" | awk  -F $'\t' '{print $3}'`
-    if ! grep -q -F "$dirname/" $DATFILE  > /dev/null
+    dirname=`echo "$line" | awk  -F $'\t' 'BEGIN { RS = "\0" } {print $3}'`
+    if ! grep -FZaq "$dirname/" $DATFILE  > /dev/null
     then
-      chunksize=`echo "$line" | awk  -F $'\t' '{print $2}'`
+      chunksize=`echo "$line" | awk  -F $'\t' 'BEGIN { RS = "\0" } {print $2}'`
       if [ $chunksize -gt $maxdirsize ]
       then
         maxdirsize=$chunksize
@@ -57,31 +59,35 @@ partition() {
   #
   # exclude files from lower level already chunked directories in same tree
   #
-  awk -F $'\t' '{printf "%s\n", $2}' $CHUNKED | grep -F "${dirname}" > $EXCLFILE
+  awk -F $'\t' 'BEGIN { RS = "\0" } {printf "%s\n", $2}' $CHUNKED | \
+    grep -FZa "${dirname}" > $EXCLFILE
   if [ -s "${EXCLFILE}" ]
   then
-    grep -F "${dirname}" $ALLFILES | grep -F -v -f $EXCLFILE > $TMPFILE
+    grep -FZa "${dirname}" $ALLFILES | grep -FZa -v -f $EXCLFILE | \
+       tr '\0' '\n' > $TMPFILE
   else
-    ##    fpart -s $FPARTBYTES -o $PARTITIONDIR/$chunk "$dirname"
-    grep -F "${dirname}" $ALLFILES  > $TMPFILE
+    grep -FZa "${dirname}" $ALLFILES | \
+       tr '\0' '\n' > $TMPFILE
   fi
 
   # Let fpart do the hard work
-  fpart -s $FPARTBYTES -o $PARTITIONDIR/$chunk -f $FPARTFILES -i $TMPFILE 
+  # it dosn't have option to handle null terminated input files
+  fpart -s $FPARTBYTES -o $PARTITIONDIR/$chunk -f $FPARTFILES -i "$TMPFILE" 
 }
 
 # ---------
 usage() {
-  echo "Usage: $0 [-s <chunk_size_kbytes>] [-f <chunk_file_count] [-o <part_dir> ] <directory_to_partition> " >&2
+  echo "Usage: $0 [-c] [-s <chunk_size_kbytes>] [-f <chunk_file_count] [-o <part_dir> ] <directory_to_partition> " >&2
   exit 1
 }
 
 # --------------------------------------------------------------------
 PARTITIONDIR="dparts"
 
-while getopts "s:o:f:" option
+while getopts "cs:o:f:" option
 do
   case $option in
+    c)  SUGGESTSIZE=1 ;;
     s)  CHUNKSIZE=$OPTARG ;;
     o)  PARTITIONDIR=$OPTARG ;;
     f)  FPARTFILES=$OPTARG ;;
@@ -116,7 +122,7 @@ TMPFILE="$PARTITIONDIR/.dpart-data.tmp"
 EXCLFILE="$PARTITIONDIR/.dpart-data.exclude" 
 CHUNKED="$PARTITIONDIR/.dpart-chunked.txt" 
 ALLFILES="$PARTITIONDIR/.dpart-find.out"
-DMDUOUT="$PARTITIONDIR/.dpart-du.out"
+DUOUT="$PARTITIONDIR/.dpart-du.out"
 
 
 echo "Partitioning file names in $STARTDIR into chunks"
@@ -135,7 +141,7 @@ fi
 if [ ! -f $INFOFILE ] || ! grep -q -F "STARTDIR==${STARTDIR}==" $INFOFILE
 then
   rm -f $ALLFILES
-  rm -f $DMDUOUT
+  rm -f $DUOUT
   echo "STARTDIR==${STARTDIR}==" > $INFOFILE
 fi
 
@@ -150,27 +156,54 @@ cd $STARTDIR
 if [ ! -f $ALLFILES ]
 then
   echo "Please wait. Finding all the files under $STARTDIR"
-  find -H . ! -type d > $ALLFILES
+  find -H . ! -type d -print0 > $ALLFILES
 fi
 
-if [ ! -f $DMDUOUT ]
+DMSTATE=""
+# check for HSM filesystem
+if which $DMDU 2> /dev/null
+then
+  DMSTATE=$(dmattr -a state . 2> /dev/null)
+  if [ $? -ne 0 -a -n "$DMSTATE" ]
+  then
+    DU=$DMDU
+  fi
+fi
+# TODO check for PANASAS filesytem and use pan_du
+
+if [ ! -f $DUOUT ]
 then
   echo "Please wait. Finding the sizes of directories under $STARTDIR"
-  $DU . > $DMDUOUT
+
+  # dmdu has no null terminated file output option.
+  if [ -n "$DMSTATE" ]
+  then
+    $DU . | tr '\n' '\0' > $DUOUT
+  else
+    $DU -0 . > $DUOUT
+  fi
 fi
 
-echo "Working out the chunk lists - see $PARTITIONDIR for progress"
 
-# find smallest dir chunk
-#result=$(findleaves)
-#echo $result
+if [ $SUGGESTSIZE -eq 1 ]
+then
+  # find smallest dir chunk
+  result=$(findleaves)
+  result=$(($result - 1))
+  echo "Recommended chunk size is $result"
+  exit 0
+fi
+
+echo "Working out the chunk lists - see $PARTITIONDIR for progress ($DU)"
+
 
 # 
 # find lowest level "chunk"
 #
-awk -F \/ '{printf "%s\t%s\n", NF-1, $0}' $DMDUOUT | sort -nr  > $DATFILE
+awk -F \/ 'BEGIN { RS = "\0" } {printf "%s\t%s\0", NF-1, $0}' $DUOUT | \
+    sort -znr  > $DATFILE
 
-MAX_DEPTH=`awk -F $'\t' -v MAX=${CHUNKSIZE} '$2 > MAX {printf "%s\n", $1}' $DATFILE | head -1`
+MAX_DEPTH=`awk -F $'\t' -v MAX=${CHUNKSIZE} 'BEGIN { RS ="\0" } $2 > MAX {printf "%s\n", $1}' $DATFILE | head -1`
 
 
 depth=$((MAX_DEPTH))
@@ -180,10 +213,7 @@ echo "maximum chunked directory depth = $depth"
 # chunk size too small for dataset
 if [ $depth -eq 0 ]
 then
-  #suggest=$(findleaves)
-  #suggest=$((2 * $suggest))
-  #echo "ERROR: select larger chunk size (I suggest $suggest ) or just use part"
-  echo "ERROR: select larger chunk size or just use part as follows"
+    echo "ERROR: select smaller chunk size (use -c option) or just use part as follows"
   chunk=`printf "chunk-%d-%d\n" 0 0`
   echo "  cd $STARTDIR;fpart -s $FPARTBYTES -o $PARTITIONDIR/$chunk ."
   exit 1
@@ -197,15 +227,17 @@ do
   echo "checking directory level $depth"
   index=0
   awk  -F $'\t' -v MAX=${CHUNKSIZE} -v DEPTH=${depth} \
-     '$1 == DEPTH && $2 > MAX {printf "%s/\n", $3}' $DATFILE | \
-  while read -r line
+   'BEGIN { RS = "\0" } $1 == DEPTH && $2 > MAX {printf "%s/\0", $3}' \
+   $DATFILE | \
+  while IFS= read -r -d '' line
   do
     partition $depth $index "$line"
     index=$(($index + 1))
   done 
 
   awk -F $'\t' -v MAX=${CHUNKSIZE} -v DEPTH=${depth} \
-    '$1 == DEPTH && $2 > MAX {printf "%s\t%s/\n", $2, $3}' $DATFILE >> $CHUNKED
+   'BEGIN { RS = "\0" } $1 == DEPTH && $2 > MAX {printf "%s\t%s/\0", $2, $3}' \
+   $DATFILE >> $CHUNKED
 
   depth=$(($depth - 1))
 done
@@ -216,7 +248,7 @@ done
 #
 echo
 echo
-TOTALFC=`cat $ALLFILES | wc -l`
+TOTALFC=`cat $ALLFILES | tr '\0' '\n' | wc -l`
 CHUNKEDFC=`cat $PARTITIONDIR/chunk-* | wc -l`
 
 echo "TOTAL FILE COUNT = $TOTALFC,  CHUNKED FILE COUNT = $CHUNKEDFC"

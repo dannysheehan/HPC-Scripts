@@ -129,7 +129,6 @@ echo "Partitioning file names in $STARTDIR into chunks"
 echo "  under:      $PARTITIONDIR"
 echo "  maxsize:  $CHUNKSIZE kbytes (-s option)"
 echo "  maxfiles: $FPARTFILES (-f option)"
-echo "  using:    $DU"
 
 
 if [ ! -d "$PARTITIONDIR" ] 
@@ -171,6 +170,7 @@ then
   fi
 fi
 # TODO check for PANASAS filesytem and use pan_du
+echo "  using:    $DU"
 
 if [ ! -f $DUOUT ]
 then

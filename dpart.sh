@@ -98,15 +98,21 @@ shift $((OPTIND-1))
 
 STARTDIR="$1"
 
+if ! which fpart 2> /dev/null > /dev/null
+then
+  echo "ERROR: 'fpart' needs to be installed and in your PATH" >&2
+  usage
+fi    
+
 if [ -z "$STARTDIR" ]
 then
-  echo "ERROR: You must define a starting directory to chunk"
+  echo "ERROR: You must define a starting directory to chunk" >&2
   usage
 fi
 
 if [ ! -d "$STARTDIR" ]
 then
-  echo "ERROR: $STARTDIR does not exist or is not a directory"
+  echo "ERROR: $STARTDIR does not exist or is not a directory" >&2
   usage
 fi
 
@@ -153,7 +159,7 @@ rm -f $PARTITIONDIR/chunk-*
 # Generate input data to work out chunking
 cd $STARTDIR
 
-if [ ! -f $ALLFILES ]
+if [ ! -f "$ALLFILES" -o ! -s "$ALLFILES" ]
 then
   echo "Please wait. Finding all the files under $STARTDIR"
   find -H . ! -type d -print0 > $ALLFILES
@@ -172,7 +178,7 @@ fi
 # TODO check for PANASAS filesytem and use pan_du
 echo "  using:    $DU"
 
-if [ ! -f $DUOUT ]
+if [ ! -f "$DUOUT" -o ! -s "$DUOUT" ]
 then
   echo "Please wait. Finding the sizes of directories under $STARTDIR"
 

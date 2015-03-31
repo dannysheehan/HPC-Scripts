@@ -64,7 +64,7 @@ partition() {
   if [ -s "${EXCLFILE}" ]
   then
     grep -Fza "${dirname}" $ALLFILES | \
-       tr '\0' '\n' | grep -Fv -f $EXCLFILE > $TMPFILE
+       grep -Fzav -f $EXCLFILE | tr '\0' '\n' > $TMPFILE
   else
     grep -Fza "${dirname}" $ALLFILES  | \
        tr '\0' '\n'  > $TMPFILE
@@ -77,26 +77,35 @@ partition() {
 
 # ---------
 usage() {
-  echo "Usage: $0 [-c] [-s <chunk_size_kbytes>] [-f <chunk_file_count] [-o <part_dir> ] <directory_to_partition> " >&2
+  echo "Usage: $0 [-c] [-s <chunk_size_kbytes>] [-e <exlude_paths] [-f <chunk_file_count] [-o <part_dir> ] <directory_to_partition> " >&2
   exit 1
 }
 
 # --------------------------------------------------------------------
 PARTITIONDIR="dparts"
+EXCLPATHS=""
 
-while getopts "cs:o:f:" option
+while getopts "cs:o:f:e:" option
 do
   case $option in
     c)  SUGGESTSIZE=1 ;;
     s)  CHUNKSIZE=$OPTARG ;;
     o)  PARTITIONDIR=$OPTARG ;;
     f)  FPARTFILES=$OPTARG ;;
+    e)  EXCLPATHS=$OPTARG ;;
     *)  usage ;;
   esac
 done
 shift $((OPTIND-1))
 
 STARTDIR="$1"
+
+if [ -n "$EXCLPATHS" ] && \
+   [ ! -f "$EXCLPATHS" -o -z "$EXCLPATHS" -o ${EXCLPATHS:0:1} != '/' ]
+then
+  echo "ERROR: <exclude_paths> must exist and  be an absolute path" >&2
+  usage
+fi
 
 if ! which fpart 2> /dev/null > /dev/null
 then
@@ -129,6 +138,9 @@ EXCLFILE="$PARTITIONDIR/.dpart-data.exclude"
 CHUNKED="$PARTITIONDIR/.dpart-chunked.txt" 
 ALLFILES="$PARTITIONDIR/.dpart-find.out"
 DUOUT="$PARTITIONDIR/.dpart-du.out"
+
+EXALLFILES="$PARTITIONDIR/.dpart-find.excluded"
+EXDUOUT="$PARTITIONDIR/.dpart-du.excluded"
 
 
 echo "Partitioning file names in $STARTDIR into chunks"
@@ -174,6 +186,7 @@ then
   then
     DU=$DMDU
   fi
+
 fi
 # TODO check for PANASAS filesytem and use pan_du
 echo "  using:    $DU"
@@ -189,6 +202,19 @@ then
   else
     $DU -0 . > $DUOUT
   fi
+
+fi
+
+if [ -n "$EXCLPATHS" ]
+then
+   echo "  excluding: $EXCLPATHS (-e option)"
+   grep -Fzav -f $EXCLPATHS $ALLFILES > $EXALLFILES
+   ALLFILES=$EXALLFILES
+
+   # du does not put trailing / on directories so remove just for this test.
+   sed -e "s/\/$//" $EXCLPATHS > $TMPFILE
+   grep -Fzav -f $TMPFILE $DUOUT > $EXDUOUT
+   DUOUT=$EXDUOUT
 fi
 
 

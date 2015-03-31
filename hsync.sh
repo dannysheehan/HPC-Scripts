@@ -112,7 +112,7 @@ getfilesofftape() {
 
       cp $waiting_files $missing_files
       cat /dev/null > $waiting_files
-      sleep $WAITFORHSM
+      sleep $[ ( $RANDOM % $WAITFORHSM ) + 1 ]s
     fi
   done
 

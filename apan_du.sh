@@ -42,6 +42,13 @@ do
     continue
   fi
 
+  # Don't redo work we have already done.
+  if  grep -Fq "dir ${DDIR}/${d}:" $PANDU_OUT
+  then
+    continue
+  fi
+
+  # Allows the ability to skip files.
   if [ -f "$SKIPDIRSFILE" -a -s "$SKIPDIRSFILE" ]  && \
      grep -F "$DDIR/$d" $SKIPDIRSFILE
   then

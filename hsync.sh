@@ -10,7 +10,7 @@
 #
 #---------------------------------------------------------------------------
 
-WAITFORHSM=300
+WAITFORHSM=600
 CONTIMEOUT=7
 IGNOREHSM=0
 
@@ -94,25 +94,29 @@ getfilesofftape() {
             echo -n 'o'
           fi
         else
-          echo -n 'm'
+          echo -n 'u'
         fi
       else
           echo -n '.'
       fi
 
+      # make .OU file output readable for users by putting in line
+      # breaks on screen boundary.
       waitcount=$((waitcount + 1))
       if [ $(($waitcount % 80)) -eq 0 ]; then echo; fi
+
     done < $missing_files
 
     echo
     if [ $UNMIGRATING -eq 1 ]
     then
-      echo "  Waiting $WAITFORHSM seconds for files still on tape."
+      SLEEPSECS=$[ ( $RANDOM % $WAITFORHSM ) + 1 ]
+      echo "  Waiting $SLEEPSECS seconds for files still on tape."
       echo "    See '$missing_files' for a list of the files still migrating"
 
       cp $waiting_files $missing_files
       cat /dev/null > $waiting_files
-      sleep $[ ( $RANDOM % $WAITFORHSM ) + 1 ]s
+      sleep $SLEEPSECS
     fi
   done
 

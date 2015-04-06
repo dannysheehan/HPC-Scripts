@@ -10,7 +10,7 @@
 #
 #---------------------------------------------------------------------------
 
-WAITFORHSM=600
+WAITFORHSM=60
 CONTIMEOUT=7
 IGNOREHSM=0
 
@@ -24,7 +24,7 @@ getmissingfiles() {
 
   echo ">determine what files are missing at '$DESTINATION'"
 
-  if ! rsync -goDlt -ni -z --relative --recursive   \
+  if ! rsync -goDlt -ni -z --relative \
      $RSYNC_OPTS \
      $DELIM_OPT \
      $CONTO_OPT \
@@ -58,64 +58,37 @@ getmissingfiles() {
 # Get missing files off tape
 # --------------------------
 getfilesofftape() {
-  mssing_files="$1"
+  missing_files="$1"
   waiting_files="$2"
 
-  waitcount=0
+  tries=0
 
-  echo ">getting OFL files from tape"
-  UNMIGRATING=1
-  while [ $UNMIGRATING -eq 1 ]
+  SLEEPSECS=$[ ( $RANDOM % $WAITFORHSM ) + 1 ]
+  echo ">getting $waitcount OFL/UMG files from tape"
+  echo "    sleeping $SLEEPSECS seconds so as not to overload HSM"
+  sleep $SLEEPSECS
+
+  waitcount=$(cat $missing_files | wc -l)
+  while [ $waitcount -gt 0 ]
   do
-    UNMIGRATING=0
-    waitcount=0
-    while IFS= read -r f
-    do
-      DMSTATE=$(dmattr -a state "$f")
-      if [ $? -ne 0 ]
-      then
-        echo "ERROR: problem getting '$f' state from HSM " >&2
-        # don't exit try again next time
-        echo -n 'e'
-      elif [ "$DMSTATE" = "OFL" -o "$DMSTATE" = "UNM" ]  
-      then
-        UNMIGRATING=1
+    tries=$((tries + 1))
 
-        echo "$f" >> $waiting_files
+    dmattr -d$'\t' -a state,path < $missing_files | \
+       awk -F$'\t' '$1 == "OFL" || $1 == "UMG" {printf "%s\n", $2}' \
+       > $waiting_files
 
-        if [ "$DMSTATE" = "OFL" ]
-        then
-          if ! dmget -q "$f"
-          then
-            echo "ERROR: problem getting '$f' from HSM" >&2
-            # don't exit try again next time
-            echo -n 'e'
-          else
-            echo -n 'o'
-          fi
-        else
-          echo -n 'u'
-        fi
-      else
-          echo -n '.'
-      fi
+    dmget -q < $waiting_files
+    waitcount=$(cat $waiting_files | wc -l)
 
-      # make .OU file output readable for users by putting in line
-      # breaks on screen boundary.
-      waitcount=$((waitcount + 1))
-      if [ $(($waitcount % 80)) -eq 0 ]; then echo; fi
-
-    done < $missing_files
-
-    echo
-    if [ $UNMIGRATING -eq 1 ]
+    if [ $waitcount -gt 0 ]
     then
-      SLEEPSECS=$[ ( $RANDOM % $WAITFORHSM ) + 1 ]
-      echo "  Waiting $SLEEPSECS seconds for files still on tape."
+      SLEEPSECS=$[ (2 * $waitcount * $tries) + ( $RANDOM % $WAITFORHSM ) + 1 ]
+      echo "  Try $tries: Waiting $SLEEPSECS seconds for $waitcount files still on tape."
       echo "    See '$missing_files' for a list of the files still migrating"
 
       cp $waiting_files $missing_files
       cat /dev/null > $waiting_files
+
       sleep $SLEEPSECS
     fi
   done
@@ -127,7 +100,7 @@ getfilesofftape() {
 # ----------------------------------
 copyfiles() {
   echo "syncing '$CHUNK'"
-  if ! rsync -goDlt -z --relative --recursive   \
+  if ! rsync -goDlt -z --relative  \
      $RSYNC_OPTS \
      $DELIM_OPT \
      $CONTO_OPT \
@@ -145,10 +118,10 @@ copyfiles() {
 # verify files in chunk were copied
 # ---------------------------------
 verifyfilescopied() {
-  mssing_files="$1"
+  missing_files="$1"
 
   echo "verify files were copied"
-  if ! rsync -goDlt -ni -z --relative --recursive   \
+  if ! rsync -goDlt -ni -z --relative \
      $RSYNC_OPTS \
      $DELIM_OPT \
      $CONTO_OPT \

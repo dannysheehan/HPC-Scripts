@@ -64,7 +64,7 @@ getfilesofftape() {
   tries=0
 
   SLEEPSECS=$[ ( $RANDOM % $WAITFORHSM ) + 1 ]
-  echo ">getting $waitcount OFL/UMG files from tape"
+  echo ">getting $waitcount OFL/UNM files from tape"
   echo "    sleeping $SLEEPSECS seconds so as not to overload HSM"
   sleep $SLEEPSECS
 
@@ -73,11 +73,21 @@ getfilesofftape() {
   do
     tries=$((tries + 1))
 
-    dmattr -d$'\t' -a state,path < $missing_files | \
-       awk -F$'\t' '$1 == "OFL" || $1 == "UMG" {printf "%s\n", $2}' \
-       > $waiting_files
+    if ! dmattr -d$'\t' -a state,path < $missing_files > $TMPFILE
+    then
+      echo "ERROR: dmattr files from tape for $CHUNK" >&2
+      exit 3
+    fi
 
-    dmget -q < $waiting_files
+    awk -F$'\t' \
+      '$1 == "OFL" || $1 == "UNM" {printf "%s\n", $2}' $TMPFILE > $waiting_files
+
+    if ! dmget -q < $waiting_files
+    then
+      echo "ERROR: dmget files from tape for $CHUNK" >&2
+      exit 3
+    fi
+
     waitcount=$(cat $waiting_files | wc -l)
 
     if [ $waitcount -gt 0 ]

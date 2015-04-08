@@ -2,18 +2,17 @@
 #---------------------------------------------------------------------------
 # @(#)$Id$
 #title          :apan_du.sh
-#description    :a wrapper for pan_du that idenfies directories with too many
-#               files for PANASAS to handle efficiently.
+#description    :a wrapper for pan_du that also identifies directories with 
+#               too many files for PANASAS to handle efficiently.
 #               It does a `find` first to identify these directories before
 #               running a pan_du.
 #author         :Danny W Sheehan
 #date           :April 2015
 #
 #  Usage: $0 <volume>
-#
 #---------------------------------------------------------------------------
-MAXPANFILES=3000
-MAXPANTOTAL=300000
+MAXDIRFILESLIMIT=3000
+MAXFILESLIMIT=300000
 
 
 DDIR=$1
@@ -31,6 +30,12 @@ SKIPDIRSFILE="$PANDU_DIR/skip.txt"
 
 PANDU_OUT="$PANDU_DIR/PanasasUsageReport_$(date +%F).csv"
 PANDU_ERR="$PANDU_DIR/PanasasUsageReport_$(date +%F).ER"
+
+if [ ! -e "$PANDU_OUT" ]
+then
+  echo "# UserName,DefaultGroup,Filesystem,GBytes,Files,kB/file,RunTime" > $PANDU_OUT
+  date > $PANDU_ERR
+fi
 
 touch $PANDU_OUT
 touch $PANDU_ERR
@@ -57,6 +62,8 @@ do
   USERN=$(stat -L -c '%U' "$DPATH")
   USERG=$(stat -L -c '%G' "$DPATH")
 
+  START_TIME=$(date -d "now" "+%s")
+
   # Allows the ability to skip files.
   if [ -f "$SKIPDIRSFILE" -a -s "$SKIPDIRSFILE" ]  && \
      grep -F "$DPATH" $SKIPDIRSFILE
@@ -68,9 +75,10 @@ do
   find  "$DPATH" -noleaf -type f > $FINDFILES
   NUMFILES=`cat $FINDFILES | wc -l`
 
-  if [ -n "$NUMFILES" ] && [ $NUMFILES -gt $MAXPANTOTAL ]
+  if [ -n "$NUMFILES" ] && [ $NUMFILES -gt $MAXFILESLIMIT ]
   then
-    echo "$DPATH:$USERN:$USERG: $NUMFILES files exceeds $MAXPANTOTAL total file limit"  >>  $PANDU_ERR
+    echo "$DPATH:$USERN:$USERG: $NUMFILES files exceeds $MAXFILESLIMIT total file limit"  >>  $PANDU_ERR
+    echo "$DPATH:$USERN:$USERG:$NUMFILES:MAXFILESLIMIT ($MAXFILESLIMIT) exceeded" >> $PANDU_ERR
 
     mv ${FINDFILES} "${PANDU_DIR}/${d}.files"
     continue
@@ -78,9 +86,10 @@ do
 
   DIRSORT=`sed -e "s/[^\/]*$//" $FINDFILES | sort | uniq -c | sort -n | tail -1`
   DIRMAXFILES=`echo $DIRSORT | awk '{print $1}'`
-  if [ -n "$DIRMAXFILES" ] && [ $DIRMAXFILES -gt $MAXPANFILES ]
+  DIRNAME=`echo $DIRSORT | awk '{print $2}'`
+  if [ -n "$DIRMAXFILES" ] && [ $DIRMAXFILES -gt $MAXDIRFILESLIMIT ]
   then
-      echo "$DPATH:$USERN:$USERG: $NUMFILES files in $DIRSORT exceeds $MAXPANFILES files in directory limit" >> $PANDU_ERR
+      echo "$DPATH:$USERN:$USERG:$DIRMAXFILES:$DIRNAME:MAXDIRFILESLIMIT ($MAXDIRFILESLIMIT) exceeded" >> $PANDU_ERR
     mv ${FINDFILES} "${PANDU_DIR}/${d}.files"
     continue
   fi
@@ -102,9 +111,14 @@ do
   then
     KBFILE=$(( $KBYTES / $NFILES ))
   fi
+
+  END_TIME=$(date -d "now" "+%s")
+  TIMEMIN=$(( ( $END_TIME - $START_TIME ) / 60 ))
   
   
-  # UserName,DefaultGroup,Filesystem,GBytes,Files,kB/file
-  echo "$USERN,$USERG,$DPATH,$GBYTES,$NFILES,$KBFILE" >> $PANDU_OUT
+  # UserName,DefaultGroup,Filesystem,GBytes,Files,kB/file,RunTime
+  echo "$USERN,$USERG,$DPATH,$GBYTES,$NFILES,$KBFILE,$TIMEMIN" >> $PANDU_OUT
 
 done 
+
+date >> $PANDU_ERR

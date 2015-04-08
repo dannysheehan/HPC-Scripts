@@ -47,9 +47,15 @@ getmissingfiles() {
       echo "    To retrieve space please run '$CHUNK | dmput -r'"
     fi
     exit 0
+
   elif [ -n "$DELIM_OPT" ]
   then
-    cp $CHUNK $missing_files
+    # dmattr and dmget don't support -0 option in older versions.
+    # so convert back to newline terminated.
+    # we also need to dmget on the complete chunk not just the missing
+    # files as the output from rsync diff changes the non ascii characters
+    # for readability which will break the dmgets.
+    tr '\0' '\n' < $CHUNK > $missing_files
   fi
 
   echo "  $COUNT files need to by synced"
@@ -80,7 +86,7 @@ getfilesofftape() {
     fi
 
     awk -F$'\t' \
-      '$1 == "OFL" || $1 == "UNM" {printf "%s\n", $2}' $TMPFILE > $waiting_files
+     '$1 == "OFL" || $1 == "UNM" {printf "%s\n", $2}' $TMPFILE > $waiting_files
 
     if ! dmget -q < $waiting_files
     then

@@ -66,7 +66,7 @@ do
 
   # Allows the ability to skip files.
   if [ -f "$SKIPDIRSFILE" -a -s "$SKIPDIRSFILE" ]  && \
-     grep -F "$DPATH" $SKIPDIRSFILE
+     grep -Fq "$DPATH" $SKIPDIRSFILE
   then
     echo "$DPATH:$USERN:$USERG: skipped in $SKIPDIRSFILE" >>  $PANDU_ERR
     continue

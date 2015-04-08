@@ -12,7 +12,7 @@
 #  Usage: $0 <volume>
 #
 #---------------------------------------------------------------------------
-MAXPANFILES=2000
+MAXPANFILES=3000
 MAXPANTOTAL=300000
 
 
@@ -29,39 +29,49 @@ mkdir -p $PANDU_DIR
 
 SKIPDIRSFILE="$PANDU_DIR/skip.txt"
 
-PANDU_OUT=$PANDU_DIR/$(date +%Y%m%d)
-#touch $PANDU_OUT
-cat /dev/null > $PANDU_OUT
+PANDU_OUT="$PANDU_DIR/PanasasUsageReport_$(date +%F).csv"
+PANDU_ERR="$PANDU_DIR/PanasasUsageReport_$(date +%F).ER"
+
+touch $PANDU_OUT
+touch $PANDU_ERR
 
 FINDFILES="$PANDU_DIR/find.out"
 
 for d in `ls -1u $DDIR`
 do
+
   if [ ! -d "$DDIR/$d" ]
   then
     continue
   fi
 
+  # dereference if symbolic link
+  DPATH=$(readlink -f "$DDIR/$d")
+
   # Don't redo work we have already done.
-  if  grep -Fq "dir ${DDIR}/${d}:" $PANDU_OUT
+  if  grep -Fq ",${DPATH}," $PANDU_OUT
   then
     continue
   fi
+
+  USERN=$(stat -L -c '%U' "$DPATH")
+  USERG=$(stat -L -c '%G' "$DPATH")
 
   # Allows the ability to skip files.
   if [ -f "$SKIPDIRSFILE" -a -s "$SKIPDIRSFILE" ]  && \
-     grep -F "$DDIR/$d" $SKIPDIRSFILE
+     grep -F "$DPATH" $SKIPDIRSFILE
   then
-    echo "dir $DDIR/$d: -1 files, ERROR SKIP"
+    echo "$DPATH:$USERN:$USERG: skipped in $SKIPDIRSFILE" >>  $PANDU_ERR
     continue
   fi
 
-  find  "$DDIR/$d" -noleaf -type f > $FINDFILES
+  find  "$DPATH" -noleaf -type f > $FINDFILES
   NUMFILES=`cat $FINDFILES | wc -l`
 
   if [ -n "$NUMFILES" ] && [ $NUMFILES -gt $MAXPANTOTAL ]
   then
-    echo "dir $DDIR/$d: $NUMFILES files, ERROR "
+    echo "$DPATH:$USERN:$USERG: $NUMFILES files exceeds $MAXPANTOTAL total file limit"  >>  $PANDU_ERR
+
     mv ${FINDFILES} "${PANDU_DIR}/${d}.files"
     continue
   fi
@@ -70,11 +80,31 @@ do
   DIRMAXFILES=`echo $DIRSORT | awk '{print $1}'`
   if [ -n "$DIRMAXFILES" ] && [ $DIRMAXFILES -gt $MAXPANFILES ]
   then
-    echo "dir $DDIR/$d: $NUMFILES files, ERROR $DIRSORT"
+      echo "$DPATH:$USERN:$USERG: $NUMFILES files in $DIRSORT exceeds $MAXPANFILES files in directory limit" >> $PANDU_ERR
     mv ${FINDFILES} "${PANDU_DIR}/${d}.files"
     continue
   fi
 
   # dir /home/uqdshee2: 5494 files, 1227024 KiB
-  pan_du -s -t 4  $DDIR/$d
-done >> $PANDU_OUT
+  PANDUDATA=$(pan_du -s -t 4  "$DPATH" 2>>  $PANDU_ERR)
+  if [ $? != 0 ]
+  then
+    echo "ERROR - problem with pan_du see $PANDU_ERR"
+    exit 1
+  fi
+
+  NFILES=$(echo $PANDUDATA | awk '{print $3}')
+  KBYTES=$(echo $PANDUDATA | awk '{print $5}')
+  GBYTES=$(( $KBYTES / 1024 / 1024 ))
+  
+  KBFILE="0"
+  if [ -n "$NFILES" -a $NFILES -gt 0 ]
+  then
+    KBFILE=$(( $KBYTES / $NFILES ))
+  fi
+  
+  
+  # UserName,DefaultGroup,Filesystem,GBytes,Files,kB/file
+  echo "$USERN,$USERG,$DPATH,$GBYTES,$NFILES,$KBFILE" >> $PANDU_OUT
+
+done 

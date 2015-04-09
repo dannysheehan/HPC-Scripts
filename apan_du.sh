@@ -34,7 +34,7 @@ PANDU_ERR="$PANDU_DIR/PanasasUsageReport_$(date +%F).ER"
 if [ ! -e "$PANDU_OUT" ]
 then
   echo "# UserName,DefaultGroup,Filesystem,GBytes,Files,kB/file,RunTime" > $PANDU_OUT
-  date > $PANDU_ERR
+  echo "START: `date`" >> $PANDU_ERR
 fi
 
 touch $PANDU_OUT
@@ -68,7 +68,7 @@ do
   if [ -f "$SKIPDIRSFILE" -a -s "$SKIPDIRSFILE" ]  && \
      grep -Fq "$DPATH" $SKIPDIRSFILE
   then
-    echo "$DPATH:$USERN:$USERG: skipped in $SKIPDIRSFILE" >>  $PANDU_ERR
+    echo "$DPATH:$USERN:$USERG:SKIPPED:$SKIPDIRSFILE" >>  $PANDU_ERR
     continue
   fi
 
@@ -78,7 +78,7 @@ do
   if [ -n "$NUMFILES" ] && [ $NUMFILES -gt $MAXFILESLIMIT ]
   then
     echo "$DPATH:$USERN:$USERG: $NUMFILES files exceeds $MAXFILESLIMIT total file limit"  >>  $PANDU_ERR
-    echo "$DPATH:$USERN:$USERG:$NUMFILES:MAXFILESLIMIT ($MAXFILESLIMIT) exceeded" >> $PANDU_ERR
+    echo "$DPATH:$USERN:$USERG:$NUMFILES:MAXFILESLIMIT:$MAXFILESLIMIT exceeded" >> $PANDU_ERR
 
     mv ${FINDFILES} "${PANDU_DIR}/${d}.files"
     continue
@@ -89,12 +89,11 @@ do
   DIRNAME=`echo $DIRSORT | awk '{print $2}'`
   if [ -n "$DIRMAXFILES" ] && [ $DIRMAXFILES -gt $MAXDIRFILESLIMIT ]
   then
-      echo "$DPATH:$USERN:$USERG:$DIRMAXFILES:$DIRNAME:MAXDIRFILESLIMIT ($MAXDIRFILESLIMIT) exceeded" >> $PANDU_ERR
+      echo "$DPATH:$USERN:$USERG:$DIRMAXFILES:$DIRNAME:MAXDIRFILESLIMIT:$MAXDIRFILESLIMIT exceeded" >> $PANDU_ERR
     mv ${FINDFILES} "${PANDU_DIR}/${d}.files"
     continue
   fi
 
-  # dir /home/uqdshee2: 5494 files, 1227024 KiB
   PANDUDATA=$(pan_du -s -t 4  "$DPATH" 2>>  $PANDU_ERR)
   if [ $? != 0 ]
   then
@@ -121,4 +120,4 @@ do
 
 done 
 
-date >> $PANDU_ERR
+echo "END: `date`" >> $PANDU_ERR

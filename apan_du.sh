@@ -77,8 +77,7 @@ do
 
   if [ -n "$NUMFILES" ] && [ $NUMFILES -gt $MAXFILESLIMIT ]
   then
-    echo "$DPATH:$USERN:$USERG: $NUMFILES files exceeds $MAXFILESLIMIT total file limit"  >>  $PANDU_ERR
-    echo "$DPATH:$USERN:$USERG:$NUMFILES:MAXFILESLIMIT:$MAXFILESLIMIT exceeded" >> $PANDU_ERR
+    echo "$DPATH:$USERN:$USERG:MAXFILESLIMIT:$NUMFILES:$MAXFILESLIMIT: exceeded" >> $PANDU_ERR
 
     mv ${FINDFILES} "${PANDU_DIR}/${d}.files"
     continue
@@ -89,7 +88,7 @@ do
   DIRNAME=`echo $DIRSORT | awk '{print $2}'`
   if [ -n "$DIRMAXFILES" ] && [ $DIRMAXFILES -gt $MAXDIRFILESLIMIT ]
   then
-      echo "$DPATH:$USERN:$USERG:$DIRMAXFILES:$DIRNAME:MAXDIRFILESLIMIT:$MAXDIRFILESLIMIT exceeded" >> $PANDU_ERR
+      echo "$DPATH:$USERN:$USERG:MAXDIRFILESLIMIT:$DIRMAXFILES:$DIRNAME:$MAXDIRFILESLIMIT: exceeded" >> $PANDU_ERR
     mv ${FINDFILES} "${PANDU_DIR}/${d}.files"
     continue
   fi

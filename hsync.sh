@@ -20,7 +20,8 @@ CONTO_OPT="--contimeout=$CONTIMEOUT"
 # determine files missing
 # ------------------------
 getmissingfiles() {
-  missing_files="$1"
+  the_chunk="$1"
+  missing_files="$2"
 
   echo ">determine what files are missing at '$DESTINATION'"
 
@@ -28,23 +29,23 @@ getmissingfiles() {
      $RSYNC_OPTS \
      $DELIM_OPT \
      $CONTO_OPT \
-     --files-from=$CHUNK \
+     --files-from=$the_chunk \
      .  $DESTINATION >  $TMPFILE
   then
     echo "ERROR: initial rsync failed" >&2
     exit 2
   fi
 
-  grep "^[<>]f" $TMPFILE | sed -e "s/^[<>]f[\+]* //"  > $missing_files
+  grep "^[<>]f" $TMPFILE | sed -e "s/^[<>]f[\+\.cstpogax]* //" > $missing_files
   rm -f $TMPFILE
 
   COUNT=$(cat $missing_files | wc -l)
   if [ $COUNT -eq 0 ]
   then
-    echo "  Files in $CHUNK are already synced to $DESTINATION"
+    echo "  Files in $the_chunk are already synced to $DESTINATION"
     if [ $IGNOREHSM -ne 1 ]
     then
-      echo "    To retrieve space please run '$CHUNK | dmput -r'"
+      echo "    To retrieve space please run '$the_chunk | dmput -r'"
     fi
     exit 0
 
@@ -55,7 +56,7 @@ getmissingfiles() {
     # we also need to dmget on the complete chunk not just the missing
     # files as the output from rsync diff changes the non ascii characters
     # for readability which will break the dmgets.
-    tr '\0' '\n' < $CHUNK > $missing_files
+    tr '\0' '\n' < $the_chunk > $missing_files
   fi
 
   echo "  $COUNT files need to by synced"
@@ -81,7 +82,7 @@ getfilesofftape() {
 
     if ! dmattr -d$'\t' -a state,path < $missing_files > $TMPFILE
     then
-      echo "ERROR: dmattr files from tape for $CHUNK" >&2
+      echo "ERROR: dmattr files from tape for $missing_files" >&2
       exit 3
     fi
 
@@ -90,7 +91,7 @@ getfilesofftape() {
 
     if ! dmget -q < $waiting_files
     then
-      echo "ERROR: dmget files from tape for $CHUNK" >&2
+      echo "ERROR: dmget files from tape for $waiting_files" >&2
       exit 3
     fi
 
@@ -115,40 +116,42 @@ getfilesofftape() {
 # copy files in chunk to destination
 # ----------------------------------
 copyfiles() {
-  echo "syncing '$CHUNK'"
+  the_chunk="$1"
+  echo "syncing '$the_chunk'"
   if ! rsync -goDlt -z --relative  \
      $RSYNC_OPTS \
      $DELIM_OPT \
      $CONTO_OPT \
-     --files-from=$CHUNK \
+     --files-from=$the_chunk \
      .  $DESTINATION 
   then
-    echo "ERROR: syncing $CHUNK" >&2
+    echo "ERROR: syncing $the_chunk" >&2
     exit 3
   fi
   
-  echo "  synced '$CHUNK'"
+  echo "  synced '$the_chunk'"
 }
 
 
 # verify files in chunk were copied
 # ---------------------------------
 verifyfilescopied() {
-  missing_files="$1"
+  the_chunk="$1"
+  missing_files="$2"
 
   echo "verify files were copied"
   if ! rsync -goDlt -ni -z --relative \
      $RSYNC_OPTS \
      $DELIM_OPT \
      $CONTO_OPT \
-     --files-from=$CHUNK \
+     --files-from=$the_chunk \
      .  $DESTINATION > $TMPFILE
   then
     echo "ERROR: initial rsync failed" >&2
     exit 4
   fi
 
-  grep "^[<>]f" $TMPFILE | sed -e "s/^[<>]f[\+]* //"  > $missing_files
+  grep "^[<>]f" $TMPFILE | sed -e "s/^[<>]f[\+\.cstpogax]* //" > $missing_files
   rm -f $TMPFILE
 
   
@@ -159,7 +162,7 @@ verifyfilescopied() {
     if [ $IGNOREHSM -ne 1 ]
     then
       echo "  now offlining files in chunk"
-      cat $CHUNK | dmput -r
+      cat $the_chunk | dmput -r
     fi
   else
     echo "ERROR: There are still $COUNT missing files. See '$missing_files'" >&2
@@ -267,7 +270,7 @@ fi
 
 MISSINGFILES="$DIRNAME/.missing-$BASENAME"
 cat /dev/null > $MISSINGFILES
-getmissingfiles $MISSINGFILES
+getmissingfiles $CHUNK $MISSINGFILES
 
 
 WAITINGFILES="$DIRNAME/.waiting-$BASENAME"
@@ -278,7 +281,8 @@ then
   getfilesofftape $MISSINGFILES $WAITINGFILES
 fi
 
-copyfiles
+copyfiles $CHUNK
 
-verifyfilescopied $MISSINGFILES
+cat /dev/null > $MISSINGFILES
+verifyfilescopied $CHUNK $MISSINGFILES
 

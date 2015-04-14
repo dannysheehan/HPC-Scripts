@@ -152,6 +152,10 @@ echo "  maxfiles: $FPARTFILES (-f option)"
 if [ ! -d "$PARTITIONDIR" ] 
 then
   mkdir "$PARTITIONDIR"
+else
+  # always clean out chunks. There could be a lot so do one at a time
+  cd $PARTITIONDIR
+  find . -name "chunk-*" | xargs -l1 rm -f
 fi
 
 #
@@ -162,9 +166,6 @@ then
   rm -f $DUOUT
   echo "STARTDIR==${STARTDIR}==" > $INFOFILE
 fi
-
-# always clean out chunks
-rm -f $PARTITIONDIR/chunk-*
 
 
 #

@@ -154,8 +154,7 @@ then
   mkdir "$PARTITIONDIR"
 else
   # always clean out chunks. There could be a lot so do one at a time
-  cd $PARTITIONDIR
-  find . -name "chunk-*" | xargs -l1 rm -f
+  find "$PARTITIONDIR" -name 'chunk-*' -exec rm {} +
 fi
 
 #

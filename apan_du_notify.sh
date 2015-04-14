@@ -31,7 +31,7 @@ processerror() {
     ERROR_DIR=$(echo "$error" | cut -d\: -f6)
     DIR_NUM=$(echo "$error" | cut -d\: -f5)
 
-    SUBJECT="$UDIR contains directories with very large numbers of files"
+    SUBJECT="$UDIR contains directories with a large numbers of files ($DIR_NUM)"
 
     MESSAGE=`cat << EOF
 Hi %%NAME%%,\n
@@ -52,7 +52,8 @@ Performance is impacted when accessing directories containing large \n
 numbers of small files.\n
 You may have noticed this already when you try to access these directories.\n
 .\n
-Please consider compressing or removing the files in these directories.\n
+Please compress, archive or remove these directories if they are\n
+not actively being used for compute work.\n
 .\n
 /work1, /work2 and /home are not for long term storage of files\n
 and are not backed up. They are for compute work only.\n
@@ -78,9 +79,10 @@ PANASAS filesystems work best for a small number of large files. \n
 Performance is impacted when accessing directories containing large\n 
 numbers of small files.\n
 .\n
-You may have noticed this already when trying to access these directories.\n
+You may have noticed this already when trying to access directories.\n
 .\n
-Please consider compressing or removing some files.\n
+Please archive or remove some files if they are not actively being used for \n
+compute work.\n
 .\n
 As a reminder, /work1, /work2 and /home are not for long term storage of\n
 files and are not backed up. They are for compute work only.\n
@@ -111,7 +113,7 @@ STATUS_CODE=`curl -s -o /dev/null -w "%{http_code}"  -X PUT -d @- \
 }
 EOF`
 
-if [ $STATUS_CODE -ne 200 ]
+if [ $STATUS_CODE -ne 200 -a  $STATUS_CODE -ne 204 ]
 then
   echo "ERROR: $TO_USER $STATUS_CODE" >&2
 fi

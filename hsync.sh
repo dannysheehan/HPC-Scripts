@@ -13,6 +13,7 @@
 WAITFORHSM=60
 CONTIMEOUT=7
 IGNOREHSM=0
+VERIFY=0
 
 DELIM_OPT=""
 CONTO_OPT="--contimeout=$CONTIMEOUT"
@@ -49,7 +50,7 @@ getmissingfiles() {
     fi
     exit 0
 
-  elif [ -n "$DELIM_OPT" ]
+  elif [ -n "$DELIM_OPT" -a $VERIFY -eq 0 ]
   then
     # dmattr and dmget don't support -0 option in older versions.
     # so convert back to newline terminated.
@@ -171,7 +172,7 @@ verifyfilescopied() {
 }
 
 usage() {
-  echo "Usage: $0 [-0] [-i] <start_dir> <destination> <file_list>" >&2
+  echo "Usage: $0 [-v] [-i] <start_dir> <destination> <file_list>" >&2
   echo "  <start_dir> and <file_list> need to have absolute paths" >&2
   exit 1
 }
@@ -179,9 +180,10 @@ usage() {
 
 
 # ------------------------------------------------------------------
-while getopts "i" option
+while getopts "iv" option
 do
   case $option in
+    v)  VERIFY=1 ;;
     i)  IGNOREHSM=1 ;;
     *)  usage ;;
   esac
@@ -271,6 +273,16 @@ fi
 MISSINGFILES="$DIRNAME/.missing-$BASENAME"
 cat /dev/null > $MISSINGFILES
 getmissingfiles $CHUNK $MISSINGFILES
+
+if [ $VERIFY -eq 1 ]
+then
+  COUNT=$(cat $MISSINGFILES | wc -l)
+  if [ $COUNT -ne 0 ]
+  then
+    echo "VERIFY: see $MISSINGFILES for files that are missing" 
+  fi
+  exit 0
+fi
 
 
 WAITINGFILES="$DIRNAME/.waiting-$BASENAME"

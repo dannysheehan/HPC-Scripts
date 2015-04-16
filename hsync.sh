@@ -25,15 +25,13 @@ getmissingfiles() {
   missing_files="$2"
 
   echo ">determine what files are missing at '$DESTINATION'"
-
-  if ! rsync -goDlt -ni -z --relative \
-     $RSYNC_OPTS \
+  if ! eval "rsync -goDlt -ni -z --relative $RSYNC_OPTS \
      $DELIM_OPT \
      $CONTO_OPT \
      --files-from=$the_chunk \
-     .  $DESTINATION >  $TMPFILE
+     .  $DESTINATION" >  $TMPFILE
   then
-    echo "ERROR: initial rsync failed" >&2
+    echo "ERROR: getmissingfiles() initial rsync failed" >&2
     exit 2
   fi
 
@@ -119,12 +117,12 @@ getfilesofftape() {
 copyfiles() {
   the_chunk="$1"
   echo "syncing '$the_chunk'"
-  if ! rsync -goDlt -z --relative  \
+  if ! eval "rsync -goDlt -z --relative  \
      $RSYNC_OPTS \
      $DELIM_OPT \
      $CONTO_OPT \
      --files-from=$the_chunk \
-     .  $DESTINATION 
+     .  $DESTINATION" 
   then
     echo "ERROR: syncing $the_chunk" >&2
     exit 3
@@ -141,12 +139,12 @@ verifyfilescopied() {
   missing_files="$2"
 
   echo "verify files were copied"
-  if ! rsync -goDlt -ni -z --relative \
+  if ! eval "rsync -goDlt -ni -z --relative \
      $RSYNC_OPTS \
      $DELIM_OPT \
      $CONTO_OPT \
      --files-from=$the_chunk \
-     .  $DESTINATION > $TMPFILE
+     .  $DESTINATION" > $TMPFILE
   then
     echo "ERROR: initial rsync failed" >&2
     exit 4
@@ -172,7 +170,7 @@ verifyfilescopied() {
 }
 
 usage() {
-  echo "Usage: $0 [-v] [-i] <start_dir> <destination> <file_list>" >&2
+  echo "Usage: $0 [-v] [-i] <start_dir> <destination> <file_list> [rsync options]" >&2
   echo "  <start_dir> and <file_list> need to have absolute paths" >&2
   exit 1
 }
@@ -191,8 +189,14 @@ done
 shift $((OPTIND-1))
 
 STARTDIR="$1"
-DESTINATION="$2"
-CHUNK="$3"
+shift
+DESTINATION="$1"
+shift
+CHUNK="$1"
+shift
+RSYNC_OPTS=$@
+
+
 
 if [ -z "$STARTDIR" ] || [ ! -d "$STARTDIR" ] || [ ${STARTDIR:0:1} != '/' ]
 then

@@ -2,15 +2,20 @@
 #---------------------------------------------------------------------------
 # @(#)$Id$
 #title          :cleantmp.sh
-#description    :cleans files in /tmp that are not open and only if the
-#               owner has no processes running at all on the machine.
+#description    :cleans files in /tmp that 
+#               a) have not been accessed in $FRESHNESS days
+#               b) are not currently open by a process
+#               c) owner has processes running
+#
+#               I agree, b) and c) are redundant. 
+#
 #               It will echo the name of the user and the output "removed"
 #               if it removes a file or directory.
-#               NOTE: The fuser is a bit redudant i agree.
+#
 #author         :Danny W Sheehan
 #date           :April 2015
 #
-#  Usage: $0 <volume>
+#  Usage: $0 
 #---------------------------------------------------------------------------
 # not accessed within the last $RESHNESS days
 FRESHNESS=2
@@ -19,5 +24,5 @@ find /tmp -type f -atime +${FRESHNESS} -print0 | \
 do 
   ( fuser "$FILEN" > /dev/null || \
     pgrep -u `stat -c %U "$FILEN"` > /dev/null ) || \
-  ( stat -c %U "$FILEN" && rm -fr "$FILEN" && echo Removed $FILEN ) 
+  ( stat -c %U "$FILEN" && rm -f "$FILEN" && echo Removed $FILEN ) 
 done

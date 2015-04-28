@@ -17,5 +17,5 @@ ls -1 /tmp | while read FILEN
 do 
   ( fuser "/tmp/$FILEN" > /dev/null || \
     pgrep -u `stat -c %U "/tmp/$FILEN"` > /dev/null ) || \
-  ( stat -c %U "/tmp/$FILEN" && rm -fr "/tmp/$FILEN" && echo Removed ) 
+  ( stat -c %U "/tmp/$FILEN" && rm -fr "/tmp/$FILEN" && echo Removed $FILEN ) 
 done

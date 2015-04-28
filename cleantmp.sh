@@ -12,10 +12,12 @@
 #
 #  Usage: $0 <volume>
 #---------------------------------------------------------------------------
-
-ls -1 /tmp | while read FILEN
+# not accessed within the last $RESHNESS days
+FRESHNESS=2
+find /tmp -type f -atime +${FRESHNESS} -print0 | \
+    while IFS= read -r -d '' FILEN
 do 
-  ( fuser "/tmp/$FILEN" > /dev/null || \
-    pgrep -u `stat -c %U "/tmp/$FILEN"` > /dev/null ) || \
-  ( stat -c %U "/tmp/$FILEN" && rm -fr "/tmp/$FILEN" && echo Removed $FILEN ) 
+  ( fuser "$FILEN" > /dev/null || \
+    pgrep -u `stat -c %U "$FILEN"` > /dev/null ) || \
+  ( stat -c %U "$FILEN" && rm -fr "$FILEN" && echo Removed $FILEN ) 
 done

@@ -98,7 +98,8 @@ getfilesofftape() {
 
     if [ $waitcount -gt 0 ]
     then
-      SLEEPSECS=$[ (2 * $waitcount * $tries) + ( $RANDOM % $WAITFORHSM ) + 1 ]
+      # exponential backoff
+      SLEEPSECS=$[ (2 * $SLEEPSECS) ]
       echo "  Try $tries: Waiting $SLEEPSECS seconds for $waitcount files still on tape."
       echo "    See '$missing_files' for a list of the files still migrating"
 

@@ -66,3 +66,7 @@ easily "chunk up" their smaller data files.
 
 For more details see [chunkybackup](chunkybackup.md).
 
+
+
+[![Bitdeli Badge](https://d2weczhvl823v0.cloudfront.net/dannysheehan/hpc-scripts/trend.png)](https://bitdeli.com/free "Bitdeli Badge")
+

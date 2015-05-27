@@ -11,6 +11,7 @@
 #---------------------------------------------------------------------------
 
 WAITFORHSM=60
+MAXHSMWAIT=18000  # 4 of hours waiting? - must be something wrong
 CONTIMEOUT=7
 IGNOREHSM=0
 VERIFY=0
@@ -85,6 +86,12 @@ getfilesofftape() {
       exit 3
     fi
 
+    if [ ! -s $TMPFILE ]
+    then
+      echo "ERROR: dmattr files from tape for $missing_files" >&2
+      exit 3
+    fi
+
     awk -F$'\t' \
      '$1 == "OFL" || $1 == "UNM" {printf "%s\n", $2}' $TMPFILE > $waiting_files
 
@@ -105,6 +112,12 @@ getfilesofftape() {
 
       cp $waiting_files $missing_files
       cat /dev/null > $waiting_files
+
+      if [ $SLEEPSECS -gt $MAXHSMWAIT ]
+      then
+         echo "ERROR: dmget taking too long for $waiting_files. Call admin" >&2
+         exit 3
+      fi
 
       sleep $SLEEPSECS
     fi

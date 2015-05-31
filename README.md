@@ -70,3 +70,5 @@ For more details see [chunkybackup](chunkybackup.md).
 
 [![Bitdeli Badge](https://d2weczhvl823v0.cloudfront.net/dannysheehan/hpc-scripts/trend.png)](https://bitdeli.com/free "Bitdeli Badge")
 
+[![Code Issues](http://www.quantifiedcode.com/api/v1/project/3b89d36d1fcd44b0915cf47a0815052b/badge.svg)](http://www.quantifiedcode.com/app/project/3b89d36d1fcd44b0915cf47a0815052b)
+

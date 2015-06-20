@@ -16,22 +16,30 @@ wall_time="$hours:00:00"
 # 231:00:00
 echo $wall_time
 
+qselect -s Q -l walltime.gt.$wall_time | \
+while read job
+do 
+  echo "qalter $job"
+  qalter -l "walltime=$wall_time" $job
+done
+
 echo "set server resources_max.walltime = $wall_time"
-# qmgr -c "set server resources_max.walltime = $wall_time"
+qmgr -c "set server resources_max.walltime = $wall_time"
 
 echo "set server resources_default.walltime = $wall_time"
-# qmgr -c "set server resources_default.walltime = $wall_time"
+qmgr -c "set server resources_default.walltime = $wall_time"
 #
 # Add queue with wall times here
 #
 echo "set queue workq resources_max.walltime = $wall_time"
-#qmgr -c "set queue workq resources_max.walltime = $wall_time"
+qmgr -c "set queue workq resources_max.walltime = $wall_time"
 
 echo "set queue fast resources_max.walltime = $wall_time"
-#qmgr -c "set queue fast resources_max.walltime = $wall_time"
+qmgr -c "set queue fast resources_max.walltime = $wall_time"
 
 echo "set queue urgent resources_max.walltime = $wall_time"
-#qmgr -c "set queue urgent resources_max.walltime = $wall_time"
+qmgr -c "set queue urgent resources_max.walltime = $wall_time"
+
 
 # snapshot
 #qmgr -c "set queue backfill resources_max.walltime = 02:00:00

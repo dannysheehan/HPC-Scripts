@@ -11,7 +11,7 @@
 #
 #  Usage: $0 <volume>
 #---------------------------------------------------------------------------
-MAXDIRFILESLIMIT=3000
+MAXDIRFILESLIMIT=10000
 MAXFILESLIMIT=300000
 
 

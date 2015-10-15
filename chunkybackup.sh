@@ -125,13 +125,6 @@ then
     exit 2
 fi
 
-# Check if a $SCRATCH_DIR area exists for staging.
-if [ ! -d "$SCRATCH_DIR" ]
-then
-    echo "ERROR: $0 needs $SCRATCH_DIR to work." >&2
-    exit 2
-fi
-
 if [ -n "$TMPDIR" -a -d "$TMPDIR" ]
 then
   SCRATCH_DIR=$TMPDIR

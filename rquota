@@ -1,0 +1,33 @@
+#!/bin/bash
+# 
+NUSER=$USER
+CMD_OPT=""
+if [ "$#" -ge 1 ]
+then
+  NUSER=$1
+  CMD_OPT="-u $NUSER"
+fi
+
+printf "%-14s %-8s %-8s %-10s %-10s\n" "FileSet" "Used(GB)" "Limit"  "Files" "Limit"
+/usr/lpp/mmfs/bin/mmlsquota $CMD_OPT | \
+  awk  '/^gpfs.*(home|30days|90days)/ {
+     printf "%-14s %-8d %-8d %-10d %-10d\n", $2, ($4 / 1024 / 1024), ($5 / 1024 / 1024), $10, $11
+  }' | sed -e "s/homes/\/home/" \
+           -e "s/30days_scratch/\/30days       /" \
+           -e "s/90days_scratch/\/90days       /"
+
+
+for g in `groups $NUSER | cut -d\: -f2`
+do
+  if [ -d /gpfs1/groups/$g ]
+  then
+    #PRIMARY_GRP=$(id -g -n $NUSER)
+    echo
+    echo "group quota: /groups/$g"
+    printf "%-14s %-8s %-8s %-10s %-10s\n" "FileSet" "Used(GB)" "Limit"  "Files" "Limit"
+    /usr/lpp/mmfs/bin/mmlsquota -g $g | \
+    awk  '/^gpfs.*(groups)/ {
+     printf "%-14s %-8d %-8d %-10d %-10d\n", $2, ($4 / 1024 / 1024), ($5 / 1024 / 1024), $10, $11
+  }'
+  fi
+done

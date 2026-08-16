@@ -1,72 +1,62 @@
-HPC-Scripts
-===========
+# HPC-Scripts
 
-Scripts to help Unix Administrators and Users manage High Performance Computing (HPC) environments.
+Scripts for Unix admins and users running HPC environments. Changes go on a branch and land on `main` through a pull request.
 
-## HPC Cleanup Scripts
+## Layout
 
-### Scratch Filesystem Cleanup (_expirfiles.py_)
+| Directory | What |
+| --- | --- |
+| [cleanup/](cleanup/) | Expire unused scratch and `/tmp` files |
+| [storage/](storage/) | Disk usage, quotas, volume fill rate |
+| [hsm/](hsm/) | HSM / tape backups of small files |
+| [scheduler/](scheduler/) | Head-node and PBS/Torque checks |
 
-HPC systems have very large fast parallel filesystems where users 
-can generate and use literally terrabytes of data during computation.
-- "scratch" filesystems.
-Unfortunately, users to tend to leave files around in these filesystems
-rather than backing them up to long term storage such as HSM.
-Quotering can get around this issue, but can still results in people leaving
-uneeded files around and hogging space.
-Also, since "scratch" filesystems are typically not backed up, the practice of 
-leaving files in "scratch" filesystems is not safe.
+## cleanup
 
-Given a file system _expirefiles_ will find all files that have not been
-accessed in a specified number of days. It has options to warn users
-of files which are about to be expired (removed) via email.
+### expirefiles.py
 
-Exceptions for usernames and also file paths are supported, where certain
-files can be exempted from a later deletion.
+Scratch filesystems fill up because users leave data that is not backed up. `expirefiles.py` finds files not accessed in N days, can email owners, and can delete. User and path exceptions are supported.
 
-For more details see [expirefiles](expirefiles.md).
+Details: [expirefiles.md](cleanup/expirefiles.md)
 
+### cleantmp.sh
 
-## HPC Head Node Scripts
+Removes `/tmp` files not accessed in 2 days that are not open and whose owner has no running processes.
 
-In a typical HPC environment users login to _head nodes_ also referred to a
-_login nodes_ , from where they submit their batch jobs.
+## storage
 
+### apan_du.sh / apan_du_notify.sh / lsdircount.sh
 
-### HPC Head Node Abuse Detection (_goodcitizen.sh_)
+PANASAS usage. `apan_du.sh` wraps `pan_du` and flags directories with too many files. `apan_du_notify.sh` emails (and can throttle) users over a GB limit. `lsdircount.sh` reports directories over the file-count limit from the last `apan_du` run.
 
-Sometimes users run CPU intensive jobs on the head nodes rather than submitting
-batch jobs to PBS/Torque.  
+### aquota.sh / rquota
 
-The _goodcitizen.sh_ script detects users who are running CPU intensive jobs 
-and notifies them via email to use interactive batch jobs instead.
+Quota notices. `aquota.sh` warns PANASAS users over size or file limits. `rquota` prints GPFS home/scratch/group quota via `mmlsquota`.
 
-Other checks can be added, for example:
+### user-disk-usage.sh / volfillrate.sh
 
-_"watch qstat" detection_  - users sometimes overload the PBS/Torque scheduler 
-by continually polling the status of their jobs with _watch qstat_.
+`user-disk-usage.sh` walks a tree and records per-owner usage. `volfillrate.sh` samples `df` to estimate how fast a volume is filling.
 
-For more details on configuration see [goodcitizen](goodcitizen.md).
+## hsm
 
-## HPC Hierarchical Storage Management (HSM) Scripts
+### chunkybackup.sh
 
-Most HSM facilities using HSM storage management. This usually consists of
-a quota based NFS **online** frontend disk cache to a much larger backend
-**offline** tape component.  Users copy data to the cache and the HSM offlines
-the data in the background. 
+Splits a directory into sized tar chunks on HSM so small files actually go to tape. Run as the data owner, not root.
 
+Details: [chunkybackup.md](hsm/chunkybackup.md)
 
-### HSM Chunk Small Files Into Large Files (_chunkybackup.sh_)
+### dpart.sh / hsync.sh
 
-As can be expected copying lots of small files to HSM storage is not 
-particularly efficient. Small files are typically not big enough to be
-automatically moved to tape and will remain forever in the cache. This is
-why _chunkybackup.sh_ was written to allow users of a HPC faility to 
-easily "chunk up" their smaller data files.
+`dpart.sh` wraps `fpart` to chunk by directory size. `hsync.sh` rsyncs those chunks, waiting on HSM to stage files.
 
-For more details see [chunkybackup](chunkybackup.md).
+## scheduler
 
+### goodcitizen.sh
 
+Cron on head nodes. Emails users pegging CPU for more than an hour, and catches `watch qstat`.
 
-[![Code Issues](http://www.quantifiedcode.com/api/v1/project/3b89d36d1fcd44b0915cf47a0815052b/badge.svg)](http://www.quantifiedcode.com/app/project/3b89d36d1fcd44b0915cf47a0815052b)
+Details: [goodcitizen.md](scheduler/goodcitizen.md)
 
+### pbsqcheck.sh / usage-check.sh / dynamic-motd.sh
+
+`pbsqcheck.sh` summarises queued PBS jobs. `usage-check.sh` warns if load is more than 2× CPU count. `dynamic-motd.sh` is a small MOTD helper.

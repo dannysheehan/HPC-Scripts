@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bash syntax check
+        run: |
+          shopt -s nullglob
+          files=(*.sh)
+          if ((${#files[@]})); then
+            bash -n "${files[@]}"
+          fi
+      - name: Python syntax check
+        run: |
+          shopt -s nullglob
+          files=(*.py)
+          if ((${#files[@]})); then
+            python3 -m py_compile "${files[@]}"
+          fi
